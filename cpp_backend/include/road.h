@@ -4,11 +4,11 @@
 
 class road {
 private:
-    std::string id, startNodeId, endNodeId;
-    double length, speedLimit;
+    std::string id, start_node_id, end_node_id;
+    double length, speed_limit;
 public:
     road(std::string id, std::string start, std::string end, double len, double limit);
-    double getCost() const; // Tính trọng số đường cho thuật toán tìm đường
+    double get_cost() const; // Tính trọng số đường cho thuật toán tìm đường
 };
 
 #endif
