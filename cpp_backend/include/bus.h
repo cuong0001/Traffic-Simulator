@@ -1,11 +1,11 @@
 #ifndef BUS_H
 #define BUS_H
-#include "Vehicle.h"
-class Bus : public Vehicle {
+#include "vehicle.h"
+class bus : public vehicle {
 public:
-    Bus(std::string id);
+    bus(std::string id);
     void move() override;
-    std::string getType() const override { return "Bus"; }
+    std::string get_type() const override { return "Bus"; }
 };
 
 #endif
