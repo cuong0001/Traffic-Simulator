@@ -2,14 +2,14 @@
 #define INTERSECTION_H
 #include <string>
 
-class Intersection {
+class intersection {
 private:
     std::string id;
     double x, y;
-    bool hasTrafficLight;
+    bool has_traffic_light;
 public:
-    Intersection(std::string id, double x, double y, bool trafficLight = false);
-    std::string getId() const { return id; }
+    intersection(std::string id, double x, double y, bool traffic_light = false);
+    std::string get_id() const { return id; }
 };
 
 #endif
