@@ -15,13 +15,12 @@ public:
     std::unordered_map<std::string, Building*> buildings;
 
     // Khởi tạo Graph bằng đường dẫn file JSON
-    TrafficGraph(const std::string& json_path);
-
+    TrafficGraph(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     // Hủy Graph, giải phóng toàn bộ vùng nhớ của Node, Road, Building
     ~TrafficGraph();
 
     // Các hàm nạp dữ liệu và xây dựng đồ thị
-    void load_from_json(const std::string& json_path);
+    void load_from_json(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     void create_directional_road(std::string edge_id, Node* source_node, Node* target_node, int lanes, double speed_limit, bool is_one_way);
 
     // Truy xuất
