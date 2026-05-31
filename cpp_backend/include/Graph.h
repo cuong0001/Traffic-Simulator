@@ -15,8 +15,7 @@ public:
     std::unordered_map<std::string, Building*> buildings;
 
     // Khởi tạo Graph bằng đường dẫn file JSON
-    TrafficGraph(const std::string& json_path);
-
+    TrafficGraph(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     // Hủy Graph, giải phóng toàn bộ vùng nhớ của Node, Road, Building
     ~TrafficGraph();
 
