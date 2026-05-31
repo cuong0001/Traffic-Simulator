@@ -28,7 +28,7 @@ TrafficGraph::~TrafficGraph() {
     buildings.clear();
 }
 
-// Hàm nạp dữ liệu và xây dựng đồ thị từ cấu trúc JSON mới
+// Hàm nạp dữ liệu và xây dựng đồ thị từ cấu trúc JSON, 
 void TrafficGraph::load_from_json(const std::string& json_path) {
     std::ifstream file(json_path);
     if (!file.is_open()) {
@@ -94,9 +94,7 @@ void TrafficGraph::create_directional_road(std::string edge_id, Node* source_nod
                                            int lanes, double speed_limit, bool is_one_way) {
     Road* new_road = new Road(source_node, target_node, lanes, speed_limit, is_one_way);
     edges[edge_id] = new_road;
-    
-    // Nếu trong class Node của bạn có danh sách lưu các cạnh đi ra, hãy kích hoạt dòng dưới:
-    // source_node->add_outgoing_road(new_road);
+
 }
 
 // Truy xuất Road*
