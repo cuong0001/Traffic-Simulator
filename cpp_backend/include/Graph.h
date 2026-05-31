@@ -1,31 +1,29 @@
-#ifndef GRAPH_H
-#define GRAPH_H
-
+#pragma once
 #include <string>
-#include <map>
-#include <vector>
-#include <memory>
-#include "Intersection.h"   // Giả định bạn có lớp Node
-#include "Road.h"   // Giả định bạn có lớp Road
+#include <unordered_map>
 
-class Graph {
+// Tại file Graph, chúng ta an toàn để include tất cả các header vì đây là cấp cao nhất
+#include "Node.h"
+#include "Road.h"
+#include "Building.h"
+
+class TrafficGraph {
 public:
+    // Dùng unordered_map lưu trữ theo dạng (Tên/ID -> Con trỏ đối tượng)
+    std::unordered_map<std::string, Node*> nodes;
+    std::unordered_map<std::string, Road*> edges;
+    std::unordered_map<std::string, Building*> buildings;
+
+    // Khởi tạo Graph bằng đường dẫn file JSON
     TrafficGraph(const std::string& json_path);
-    
-    // Phương thức công khai
-    std::shared_ptr<Road> get_edge(const std::string& edge_name);
 
-private:
-    std::map<std::string, std::shared_ptr<Node>> nodes;
-    std::map<std::string, std::shared_ptr<Road>> edges;
-    std::map<std::string, std::string> buildings; // Lưu tên tòa nhà và nút liên quan
+    // Hủy Graph, giải phóng toàn bộ vùng nhớ của Node, Road, Building
+    ~TrafficGraph();
 
+    // Các hàm nạp dữ liệu và xây dựng đồ thị
     void load_from_json(const std::string& json_path);
-    void load_edges(const std::map<std::string, dynamic_data>& data);
-    void create_directional_road(const std::string& edge_id, 
-                                 std::shared_ptr<Node> source, 
-                                 std::shared_ptr<Node> target, 
-                                 int lanes, double speed_limit, bool is_one_way);
-};
+    void create_directional_road(std::string edge_id, Node* source_node, Node* target_node, int lanes, double speed_limit, bool is_one_way);
 
-#endif // TRAFFIC_GRAPH_H
+    // Truy xuất
+    Road* get_edge(const std::string& edge_name) const;
+}; 
