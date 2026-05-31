@@ -1,0 +1,9 @@
+name,node_id,type
+Supermarket,p,commercial
+High School,q,school
+Gas Station,r,commercial
+East Residential,s,residential
+General Hospital,t,hospital
+Office Tower,u,commercial
+Central Park,v,park
+West Residential,w,residential
