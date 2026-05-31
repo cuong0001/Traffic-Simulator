@@ -9,7 +9,7 @@ class Geometry;
 
 class Road {
 public:
-    std::string name;
+    std::string id;
     
     Node* source;
     Node* target;
