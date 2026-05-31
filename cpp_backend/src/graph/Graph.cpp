@@ -1,4 +1,7 @@
-#include "TrafficGraph.h"
+#include "../../include/Graph.h"
+#include "../../include/Node.h"
+#include "../../include/Road.h"
+#include "../../include/Building.h"
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -85,8 +88,8 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                     int lanes = std::stoi(lanes_str);
                     double speed_limit = std::stod(speed_str);
                     
-                    // Xử lý giá trị bool (nhận diện cả dạng số "1"/"0" hoặc chữ "true"/"false")
-                    bool is_one_way = (is_oneway_str == "1" || is_oneway_str == "true" || is_oneway_str == "TRUE");
+                    // Xử lý giá trị bool ("1" nếu là đường một chiều, "0" nếu không)
+                    bool is_one_way = (is_oneway_str == "1");
 
                     // Chỉ tạo đường đi nếu cả 2 node source và target đều tồn tại
                     if (nodes.count(source_id) && nodes.count(target_id)) {
@@ -136,9 +139,9 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
 }
 
 // Xây dựng đường đi (cạnh có hướng)
-void TrafficGraph::create_directional_road(std::string edge_id, Node* source_node, Node* target_node, 
+void TrafficGraph::create_directional_road(const std::string& edge_id, Node* source_node, Node* target_node, 
                                            int lanes, double speed_limit, bool is_one_way) {
-    Road* new_road = new Road(source_node, target_node, lanes, speed_limit, is_one_way);
+    Road* new_road = new Road(edge_id, source_node, target_node, lanes, speed_limit);
     edges[edge_id] = new_road;
 }
 
