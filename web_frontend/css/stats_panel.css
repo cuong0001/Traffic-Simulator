@@ -1,0 +1,23 @@
+.global-alert {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 184, 77, 0.9);
+    color: #1a1a20;
+    padding: 20px 40px;
+    border-radius: 8px;
+    font-size: 24px;
+    font-weight: 700;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    text-align: center;
+    transition: opacity 0.3s;
+}
+
+.global-alert small {
+    display: block;
+    font-size: 14px;
+    font-weight: 400;
+    margin-top: 10px;
+}
