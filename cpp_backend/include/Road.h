@@ -16,8 +16,10 @@ public:
     
     int lanes;
     double speed_limit;
-    bool is_internal;   //Check if this road belongs to the roundabout.
-    double base_weight; //Travel cost of this road in ideal conditions.
+    bool is_internal;       //Check if this road belongs to the roundabout.
+    double base_weight;     //Travel cost of this road in ideal conditions.
+    double congestion_level;
+    double travel_cost;    //Travel time beased on congestion level.
     
     Geometry* geometry; //Simulate the road using a function.
 
@@ -29,8 +31,8 @@ public:
     //Suggest behaviors
     void add_vehicle(Vehicle* vehicle);
     void remove_vehicle(Vehicle* vehicle);
-    double get_congestion_level() const; //If congesttion level is high, vehicles preparing to enter this road will change to another route
-    double get_weight() const;
+    double get_congestion_level(); //If congesttion level is high, vehicles preparing to enter this road will change to another route
+    double get_weight();
     void update();
     
     // Check to see if there are any vehicles or obstacles ahead.
