@@ -16,8 +16,10 @@ public:
     
     int lanes;
     double speed_limit;
-    bool is_internal;   //Check if this road belongs to the roundabout.
-    double base_weight; //Travel cost of this road in ideal conditions.
+    bool is_internal;       //Check if this road belongs to the roundabout.
+    double base_weight;     //Travel cost of this road in ideal conditions.
+    double congestion_level;//Measuring traffic density of the road
+    double travel_cost;    //Travel time based on congestion level.
     
     Geometry* geometry; //Simulate the road using a function.
 
