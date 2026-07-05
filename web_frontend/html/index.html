@@ -14,11 +14,23 @@
         <!-- Canvas Area -->
         <div class="canvas-container">
             <canvas id="simCanvas"></canvas>
-            
-            <div id="loading-alert" class="global-alert">
+
+            <div id="loading-alert" class="global-alert hidden">
                 Loading Map Data...
                 <br>
             </div>
+
+            <div id="map-loader" class="map-loader-panel">
+                <h2>Traffic Simulator</h2>
+                <p class="map-loader-hint">Choose a map to display</p>
+                <button id="btn-default-map" class="map-loader-btn">Load Default Map</button>
+                <button id="btn-custom-map" class="map-loader-btn secondary">Load Custom Map</button>
+                <p class="map-loader-note">Custom map: select the 3 CSV files (nodes, roads, buildings) together</p>
+                <input type="file" id="csv-file-input" accept=".csv,text/csv" multiple hidden>
+                <p id="loader-error" class="loader-error hidden"></p>
+            </div>
+
+            <button id="btn-open-loader" class="corner-btn hidden">Load Map</button>
         </div>
     </div>
     
