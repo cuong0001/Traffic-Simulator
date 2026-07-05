@@ -31,8 +31,8 @@ public:
     //Suggest behaviors
     void add_vehicle(Vehicle* vehicle);
     void remove_vehicle(Vehicle* vehicle);
-    double get_congestion_level(); //If congesttion level is high, vehicles preparing to enter this road will change to another route
-    double get_weight();
+    double get_congestion_level() const; //If congesttion level is high, vehicles preparing to enter this road will change to another route
+    double get_weight() const;
     void update();
     
     // Check to see if there are any vehicles or obstacles ahead.
