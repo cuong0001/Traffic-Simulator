@@ -7,9 +7,59 @@
     <link rel="stylesheet" href="../css/layout.css">
     <link rel="stylesheet" href="../css/components.css">
     <link rel="stylesheet" href="../css/stats_panel.css">
+    <link rel="stylesheet" href="../css/menu.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    
+    <nav id="top-bar">
+        <div class="menu-item">Files
+            <ul class="dropdown">
+                <li><button onclick="triggerAction('Open')">Open</button></li>
+                <li><button onclick="triggerAction('Save')">Save</button></li>
+                <li><button onclick="triggerAction('Save As')">Save As</button></li>
+            </ul>
+        </div>
+
+        <div class="menu-item">Map
+            <ul class="dropdown">
+                <li><button onclick="openSidebar('Map Details')">Map Details</button></li>
+                <li><button onclick="openSidebar('Adjust Map')">Adjust Map</button></li>
+                
+                <li><button onclick="openSidebar('Add Building')">Add Building</button></li>
+                <li><button onclick="openSidebar('Add Road')">Add Road</button></li>
+                <li><button onclick="openSidebar('Add Vehicle')">Add Vehicle</button></li>
+                <li><button onclick="openSidebar('Add Traffic Lights')">Add Traffic Lights</button></li>
+                
+                <li><button onclick="openSidebar('Delete Roads')">Delete Roads</button></li>
+                <li><button onclick="openSidebar('Delete Buildings')">Delete Buildings</button></li>
+                <li><button onclick="openSidebar('Delete Traffic Lights')">Delete Traffic Lights</button></li>
+                <li><button onclick="openSidebar('Delete Vehicle')">Delete Vehicles</button></li>
+                
+                <li><button onclick="openSidebar('Modify Vechicle')">Modify Vehicles</button></li>
+                <li><button onclick="openSidebar('Modify Road')">Modify Roads</button></li>
+                <li><button onclick="openSidebar('Modify Intersection')">Modify Intersections</button></li>
+                <li><button onclick="openSidebar('Modify Traffic Light')">Modify Traffic Lights</button></li>
+            </ul>
+        </div>
+
+        <div class="menu-item">Incident
+            <ul class="dropdown">
+                <li><button onclick="openSidebar('Fire')">Fire</button></li>
+                <li><button onclick="openSidebar('Medical Emergency')">Medical Emergency</button></li>
+                <li><button onclick="openSidebar('Robbery')">Robbery</button></li>
+                <li><button onclick="openSidebar('Smash Road')">Smash Roads</button></li>
+            </ul>
+        </div>
+
+        <div class="menu-item">Decorations
+            <ul class="dropdown">
+                <li><button onclick="openSidebar('Tree')">Tree</button></li>
+                <li><button onclick="openSidebar('Grass')">Grass</button></li>
+            </ul>
+        </div>
+    </nav>
+    
     <div class="app-container">
         <!-- Canvas Area -->
         <div class="canvas-container">
@@ -33,6 +83,8 @@
             <button id="btn-open-loader" class="corner-btn hidden">Load Map</button>
         </div>
     </div>
+    
+    
     
     <script src="../js/app.js"></script>
 </body>
