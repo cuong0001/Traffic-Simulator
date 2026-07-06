@@ -22,6 +22,6 @@ public:
   void vechicle_shutdown(Vehicle*);
   void death_related(Building*);
   
-}
+};
 
 #endif
