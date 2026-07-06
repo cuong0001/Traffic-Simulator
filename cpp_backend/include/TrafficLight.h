@@ -11,12 +11,12 @@ public:
   unsigned int get_yellow();
   unsigned int get_green();
   unsigned int get_red();
-
+  
   unsigned int set_yellow();
   unsigned int set_green();
-  unsigned int set_red();
+  unsigned int set_red();`1
   
   void create_obstacle_on_red();
-}
+};
 
 #endif
