@@ -18,3 +18,5 @@ public:
   
   void create_obstacle_on_red();
 }
+
+#endif
