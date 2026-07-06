@@ -125,7 +125,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                 std::getline(ss, type, ',')) {
                 
                 if (nodes.count(node_id)) {
-                    Building* new_building = new Building(building_name, nodes[node_id], type);
+                    Building* new_building = new Building(building_name, node_id, type);
                     buildings[building_name] = new_building;
                 } else {
                     std::cerr << "Cảnh báo: Không tìm thấy Node liên kết cho Building " << building_name << std::endl;
