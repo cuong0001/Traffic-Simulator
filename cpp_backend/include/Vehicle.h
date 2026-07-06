@@ -20,7 +20,7 @@ public:
   std::pair<int,int> get_acceleration();
   unsigned int get_weight();
 
-}
+};
 
 
 #endif
