@@ -14,7 +14,7 @@ public:
   
   unsigned int set_yellow();
   unsigned int set_green();
-  unsigned int set_red();`1
+  unsigned int set_red();
   
   void create_obstacle_on_red();
 };
