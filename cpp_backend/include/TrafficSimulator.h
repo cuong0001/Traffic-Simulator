@@ -23,3 +23,5 @@ public:
   void death_related(Building*);
   
 }
+
+#endif
