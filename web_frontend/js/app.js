@@ -62,75 +62,181 @@ function parseCSV(text) {
     return result;
 }
 
+// Map Loader UI
+const loaderPanel = document.getElementById('map-loader');
+const loaderError = document.getElementById('loader-error');
+const loadingAlert = document.getElementById('loading-alert');
+const openLoaderBtn = document.getElementById('btn-open-loader');
+const fileInput = document.getElementById('csv-file-input');
+
+function showLoaderError(message) {
+    loaderError.textContent = message;
+    loaderError.classList.remove('hidden');
+}
+
+function clearLoaderError() {
+    loaderError.textContent = '';
+    loaderError.classList.add('hidden');
+}
+
+function onMapLoaded() {
+    loadingAlert.classList.add('hidden');
+    loaderPanel.classList.add('hidden');
+    openLoaderBtn.classList.remove('hidden');
+}
+
 // Data Loading
-async function loadMapData() {
+function resetMapState() {
+    nodes = {};
+    edges = [];
+    buildings = [];
+}
+
+// Parses the 3 CSV texts, replaces the current map, fits the camera.
+// Throws on fatally invalid data (no usable nodes).
+function buildMap(nodesText, roadsText, buildingsText) {
+    resetMapState();
+
+    // Process Nodes
+    const nodesArr = parseCSV(nodesText);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    nodesArr.forEach(n => {
+        const x = parseFloat(n.x);
+        const y = parseFloat(n.y);
+        if (!n.id || isNaN(x) || isNaN(y)) {
+            console.warn('Skipping invalid node row:', n);
+            return;
+        }
+        nodes[n.id] = { id: n.id, x, y };
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    });
+
+    if (Object.keys(nodes).length === 0) {
+        throw new Error('No valid nodes found in nodes CSV.');
+    }
+
+    // Process Edges
+    const edgesArr = parseCSV(roadsText);
+    edgesArr.forEach(e => {
+        if (!nodes[e.source] || !nodes[e.target]) {
+            console.warn('Skipping road with unknown node reference:', e);
+            return;
+        }
+        edges.push({
+            id: e.id,
+            source: nodes[e.source],
+            target: nodes[e.target],
+            lanes: parseInt(e.lanes) || 1,
+            is_one_way: e.is_one_way === '1'
+        });
+    });
+
+    // Process Buildings
+    const bArr = parseCSV(buildingsText);
+    bArr.forEach(b => {
+        if (!nodes[b.node_id]) {
+            console.warn('Skipping building with unknown node reference:', b);
+            return;
+        }
+        buildings.push({
+            name: b.name,
+            node_id: b.node_id,
+            type: b.type
+        });
+    });
+
+    // Auto-fit camera
+    const margin = 80;
+    const zoom = Math.min(
+        (canvas.width  - margin * 2) / (maxX - minX || 1),
+        (canvas.height - margin * 2) / (maxY - minY || 1),
+        1.5
+    );
+    camera.zoom = zoom;
+    camera.x = (canvas.width  - (maxX - minX) * zoom) / 2 - minX * zoom;
+    camera.y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
+
+    onMapLoaded();
+    render();
+}
+
+async function loadDefaultMap() {
+    clearLoaderError();
+    loadingAlert.classList.remove('hidden');
     try {
         const [nodesRes, roadsRes, buildingsRes] = await Promise.all([
             fetch('../../data/maps/nodes.csv'),
             fetch('../../data/maps/roads.csv'),
             fetch('../../data/maps/buildings.csv')
         ]);
-        
-        if (!nodesRes.ok) throw new Error("Could not load map data. Are you running a local web server?");
-        
+
+        if (!nodesRes.ok || !roadsRes.ok || !buildingsRes.ok) {
+            throw new Error("Could not load map data. Are you running a local web server?");
+        }
+
         const nodesText = await nodesRes.text();
         const roadsText = await roadsRes.text();
         const buildingsText = await buildingsRes.text();
-        
-        // Process Nodes
-        const nodesArr = parseCSV(nodesText);
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        
-        nodesArr.forEach(n => {
-            const x = parseFloat(n.x);
-            const y = parseFloat(n.y);
-            nodes[n.id] = { id: n.id, x, y };
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-        });
-        
-        // Process Edges
-        const edgesArr = parseCSV(roadsText);
-        edgesArr.forEach(e => {
-            edges.push({
-                id: e.id,
-                source: nodes[e.source],
-                target: nodes[e.target],
-                lanes: parseInt(e.lanes),
-                is_one_way: e.is_one_way === '1'
-            });
-        });
-        
-        // Process Buildings
-        const bArr = parseCSV(buildingsText);
-        bArr.forEach(b => {
-            buildings.push({
-                name: b.name,
-                node_id: b.node_id,
-                type: b.type
-            });
-        });
-        
-        // Auto-fit camera
-        if (minX < Infinity) {
-            const margin = 80;
-            const zoom = Math.min(
-                (canvas.width  - margin * 2) / (maxX - minX),
-                (canvas.height - margin * 2) / (maxY - minY),
-                1.5
-            );
-            camera.zoom = zoom;
-            camera.x = (canvas.width  - (maxX - minX) * zoom) / 2 - minX * zoom;
-            camera.y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
-        }
 
-        document.getElementById('loading-alert').classList.add('hidden');
-        render();
-
+        buildMap(nodesText, roadsText, buildingsText);
     } catch (err) {
         console.error(err);
-        document.getElementById('loading-alert').innerHTML = 
-            `Error loading Map Data!<br><small>${err.message}</small>`;
+        loadingAlert.classList.add('hidden');
+        showLoaderError(`Error loading default map: ${err.message}`);
+    }
+}
+
+// Identifies a CSV's role (nodes/roads/buildings) from its header line.
+function identifyCsvRole(text) {
+    const header = text.split('\n')[0].toLowerCase().split(',').map(h => h.trim());
+    if (header.includes('source') && header.includes('target')) return 'roads';
+    if (header.includes('node_id')) return 'buildings';
+    if (header.includes('x') && header.includes('y')) return 'nodes';
+    return null;
+}
+
+async function loadCustomMap(fileList) {
+    clearLoaderError();
+    const files = Array.from(fileList);
+    if (files.length !== 3) {
+        showLoaderError('Please select exactly 3 CSV files (nodes, roads, buildings).');
+        return;
+    }
+
+    loadingAlert.classList.remove('hidden');
+    try {
+        const texts = {};
+        for (const file of files) {
+            const text = await file.text();
+            let role = identifyCsvRole(text);
+            if (!role) {
+                // Fallback: guess from filename
+                const name = file.name.toLowerCase();
+                if (name.includes('node')) role = 'nodes';
+                else if (name.includes('road')) role = 'roads';
+                else if (name.includes('building')) role = 'buildings';
+            }
+            if (!role) {
+                throw new Error(`Could not identify "${file.name}". Expected headers:\nnodes: id,x,y\nroads: id,source,target,lanes,speed_limit,is_one_way\nbuildings: name,node_id,type`);
+            }
+            if (texts[role]) {
+                throw new Error(`Both "${file.name}" and another file look like the ${role} CSV.`);
+            }
+            texts[role] = text;
+        }
+
+        const missing = ['nodes', 'roads', 'buildings'].filter(r => !texts[r]);
+        if (missing.length > 0) {
+            throw new Error(`Missing CSV file(s): ${missing.join(', ')}.`);
+        }
+
+        buildMap(texts.nodes, texts.roads, texts.buildings);
+    } catch (err) {
+        console.error(err);
+        loadingAlert.classList.add('hidden');
+        showLoaderError(err.message);
     }
 }
 
@@ -224,5 +330,14 @@ function render() {
     });
 }
 
-// Start
-loadMapData();
+// Wire up loader controls
+document.getElementById('btn-default-map').addEventListener('click', loadDefaultMap);
+document.getElementById('btn-custom-map').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+    loadCustomMap(e.target.files);
+    e.target.value = ''; // allow re-selecting the same files
+});
+openLoaderBtn.addEventListener('click', () => {
+    clearLoaderError();
+    loaderPanel.classList.remove('hidden');
+});

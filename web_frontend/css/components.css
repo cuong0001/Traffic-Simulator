@@ -13,3 +13,94 @@ canvas:active {
     opacity: 0;
     pointer-events: none;
 }
+
+.map-loader-panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1a1a20;
+    border: 1px solid #3b3b44;
+    border-radius: 12px;
+    padding: 32px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    min-width: 320px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 1100;
+    transition: opacity 0.3s;
+}
+
+.map-loader-panel h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.map-loader-hint {
+    font-size: 14px;
+    color: #9a9aa5;
+    margin-bottom: 8px;
+}
+
+.map-loader-btn {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #4f8aff;
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.map-loader-btn:hover {
+    background: #3a75ea;
+}
+
+.map-loader-btn.secondary {
+    background: #2e2e36;
+    border: 1px solid #3b3b44;
+}
+
+.map-loader-btn.secondary:hover {
+    background: #3b3b44;
+}
+
+.map-loader-note {
+    font-size: 12px;
+    color: #6e6e78;
+}
+
+.loader-error {
+    font-size: 13px;
+    color: #ff6b6b;
+    white-space: pre-line;
+    max-width: 360px;
+}
+
+.corner-btn {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border: 1px solid #3b3b44;
+    border-radius: 8px;
+    background: rgba(26, 26, 32, 0.85);
+    color: #ffffff;
+    cursor: pointer;
+    z-index: 1000;
+    transition: background 0.15s, opacity 0.3s;
+}
+
+.corner-btn:hover {
+    background: #2e2e36;
+}
