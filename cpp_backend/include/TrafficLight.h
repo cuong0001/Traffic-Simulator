@@ -15,9 +15,9 @@ private:
 public:
 
   TrafficLight();
-  unsigned int get_yellow();
-  unsigned int get_green();
-  unsigned int get_red();
+  unsigned int get_remaining_yellow();
+  unsigned int get_remaining_green();
+  unsigned int get_remaining_red();
   
   unsigned int set_remaining_yellow();
   unsigned int set_remaining_green();
