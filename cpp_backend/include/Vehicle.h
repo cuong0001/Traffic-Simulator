@@ -18,7 +18,7 @@ public:
     double max_speed; //max speed of vehicle
 
     std::vector<Road*> route; //List of roads forming the route from the current location to the destination.
-    int route_index; //route[route_index]=curent_road;
+    int route_index; //route[route_index]=current_road;
     std::vector<std::string> travel_history; //List of road id the vehicle has passed through
     bool is_reached_destination;
 
@@ -50,7 +50,7 @@ public:
     double get_current_speed() const; //get current speed of vehicle
     const std::vector<std::string>& get_travel_history() const; //get travel history of vehicle
     const std::vector<Road*>& get_route() const; //get route of vehicle
-    int& get_route_index() const; //get current road vehicle's route
+    int get_route_index() const; //get current road vehicle's route
     
     //setter
     void set_destination(Building* dest) { destination = dest; }
