@@ -69,7 +69,7 @@ std::vector<Node*> BFS::reconstruct_path(const std::string& start_id,
         }
     }
 
-    // Walk backwards from end to start using the prev chain
+    // Walk backwards from end to start using the prev chain to trace the bfs path
     std::vector<Node*> path;
     std::string cur = end_id;
 
