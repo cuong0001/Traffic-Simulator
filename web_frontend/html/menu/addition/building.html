@@ -1,0 +1,36 @@
+<input type="radio" name="view-ctrl" id="view-list" checked class="hidden-ctrl">
+<input type="radio" name="view-ctrl" id="view-form" class="hidden-ctrl">
+
+<div class="list-container">
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/building-1.png', 'House')">
+        <img src="../assets/sprites/building-1.png">
+        <span>House</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/building-2.png', 'Company')">
+        <img src="../assets/sprites/building-2.png">
+        <span>Company</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/building-3.png', 'Apartment')">
+        <img src="../assets/sprites/building-3.png">
+        <span>Apartment</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/hospital.png', 'Hospital')">
+        <img src="../assets/sprites/hospital.png">
+        <span>Hospital</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/firestation.png', 'Fire Station')">
+        <img src="../assets/sprites/firestation.png">
+        <span>Fire Station</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/policestation.png', 'Police Station')">
+        <img src="../assets/sprites/policestation.png">
+        <span>Police Station</span>
+    </label>
+</div>
+
+<div class="form-container">
+    <img id="form-img-preview" src="" alt="Preview">
+    <input type="text" id="form-name-input" placeholder="Nhập tên mới">
+    <button onclick="handleAdd()">Add</button>
+    <label for="view-list" class="back-action">Quay lại danh sách</label>
+</div>

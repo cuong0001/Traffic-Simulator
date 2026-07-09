@@ -1,0 +1,58 @@
+<nav class = "menu-top-bar">
+    <div class="menu-item">Files
+        <ul class="dropdown">
+            <li><button onclick="triggerAction('Open')">Open</button></li>
+            <li><button onclick="triggerAction('Save')">Save</button></li>
+            <li><button onclick="triggerAction('Save As')">Save As</button></li>
+        </ul>
+    </div>
+
+    <div class="menu-item">Map
+        <ul class="dropdown">
+            <li><button onclick="openSidebar('map/details.html')">Map Details</button></li>
+            <li><button onclick="openSidebar('map/adjustment.html')">Adjust Map</button></li>
+
+            <li><button onclick="openSidebar('addition/building.html')">Add Building</button></li>
+            <li><button onclick="openSidebar('addition/road.html')">Add Road</button></li>
+            <li><button onclick="openSidebar('addition/vehicle.html')">Add Vehicle</button></li>
+            <li><button onclick="openSidebar('addition/traffic_light.html')">Add Traffic Lights</button></li>
+
+            <li><button onclick="delete('Road')">Delete Roads</button></li>
+            <li><button onclick="delete('Building')">Delete Buildings</button></li>
+            <li><button onclick="delete('Traffic Light')">Delete Traffic Lights</button></li>
+            <li><button onclick="delete('Vehicle')">Delete Vehicles</button></li>
+            <li><button onclick="delete('Decoration')">Delete Decoration</button></li>
+
+            <li><button onclick="openSidebar('modification/vechicle.html')">Modify Vehicles</button></li>
+            <li><button onclick="openSidebar('modification/road.html')">Modify Roads</button></li>
+            <li><button onclick="openSidebar('modification/intersection.html')">Modify Intersections</button></li>
+            <li><button onclick="openSidebar('modification/traffic_light.html')">Modify Traffic Lights</button></li>
+        </ul>
+    </div>
+
+    <div class="menu-item">Incident
+        <ul class="dropdown">
+            <li><button onclick="openSidebar('incident/fire.html')">Fire</button></li>
+            <li><button onclick="openSidebar('incident/medical_emergency.html')">Medical Emergency</button></li>
+            <li><button onclick="openSidebar('incident/robbery.html')">Robbery</button></li>
+            <li><button onclick="openSidebar('incident/smash_road.html')">Smash Roads</button></li>
+        </ul>
+    </div>
+
+    <div class="menu-item">Decorations
+        <ul class="dropdown">
+            <li><button onclick="openSidebar('decoration/tree.html')">Tree</button></li>
+            <li><button onclick="openSidebar('decoration/grass.html')">Grass</button></li>
+        </ul>
+    </div>
+
+    <aside id="right-sidebar" class="hidden">
+        <div class="sidebar-header">
+            <button class="close-btn" onclick="closeSidebar()">x</button>
+        </div>
+
+        <div id="sidebar-content"></div>
+    </aside>
+
+</nav>
+
