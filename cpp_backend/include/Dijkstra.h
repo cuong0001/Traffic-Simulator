@@ -3,16 +3,17 @@
 #include <vector>
 #include <unordered_map>
 #include <queue>
+#include "PathFinding.h"
 using namespace std;
 class TrafficGraph;
 class Node;
 class Road;
 
-class Dijkstra {
+class Dijkstra : public PathFinding {
 public:
     std::vector<Node*> find_path(const TrafficGraph& graph,
                                  const std::string& start_id,
-                                 const std::string& end_id);
+                                 const std::string& end_id) override;
 
 private:
     std::unordered_map<std::string, double> dist;
