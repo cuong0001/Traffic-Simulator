@@ -1,0 +1,52 @@
+/* Container chính của Sidebar */
+#right-sidebar {
+    position: fixed;         /* Cố định vị trí */
+    top: 0;                  /* Căn sát mép trên */
+    right: -300px;           /* Ẩn sidebar ra ngoài màn hình bên phải */
+    width: 300px;            /* Độ rộng */
+    height: 100%;            /* Chiều cao phủ hết màn hình */
+    background-color: #142d18ff; /* Nền tối */
+    color: #ffffff;          /* Màu chữ */
+    transition: right 0.3s ease; /* Hiệu ứng trượt mượt mà */
+    z-index: 9999;           /* Đảm bảo luôn nằm trên các phần tử khác */
+    box-sizing: border-box;  /* Đảm bảo padding không làm vỡ khung */
+}
+
+/* Class dùng để kích hoạt hiệu ứng hiển thị */
+#right-sidebar.active {
+    right: 0;                /* Trượt vào trong màn hình */
+}
+
+/* Header bao phủ toàn bộ chiều rộng, độ cao tối giản */
+.sidebar-header {
+    background-color: #333333; /* Màu nền cho cả hàng */
+    width: 100%;              /* Kéo dài hết chiều rộng sidebar */
+    padding: 0;        /* Padding nhỏ để nút x quyết định độ cao */
+    box-sizing: border-box;   /* Đảm bảo padding không làm tràn ra ngoài */
+    display: block;           /* Bỏ flex để header tự co theo nội dung */
+}
+
+/* Nút đóng nằm ở góc trái */
+.close-btn { 
+    background: none; 
+    border: none;
+    color: #ffffff; 
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0;               /* Bỏ padding để nút x chiếm diện tích nhỏ nhất */
+    display: block;           /* Hiển thị nút như một khối */
+}
+
+.close-btn:hover { 
+    font-weight: bold; 
+    background-color: none; 
+    color: #ffffff; 
+}
+
+/* Khu vực nội dung bên trong */
+#sidebar-content {
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    padding: 5px 5px;
+}
+
