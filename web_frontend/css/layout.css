@@ -1,26 +1,43 @@
-* {
-    box-sizing: border-box;
+/* 1. Nhúng Google Font (đưa dòng này lên đầu file CSS hoặc thẻ <head> của HTML) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+/* 2. Cấu hình cơ bản */
+body {
+    background-color: #050505; /* Đen sâu, nhìn sang hơn đen tuyền */
+    color: #e0e0e0;           /* Màu chữ xám sáng, không bị chói mắt */
+    font-family: 'Inter', sans-serif; /* Font Google chuyên nghiệp */
     margin: 0;
     padding: 0;
+    line-height: 1.6;         /* Khoảng cách dòng cho dễ đọc */
 }
 
-body {
+/* 3. Đảm bảo mọi thứ bên trong nhất quán */
+* {
+    box-sizing: border-box;   /* Quan trọng để không bị vỡ bố cục */
+}
+
+/* 4. Định dạng chữ để nhất quán toàn trang */
+h1, h2, h3 {
+    color: #ffffff;           /* Tiêu đề trắng nổi bật */
+    font-weight: 600;
+}
+
+a {
+    color: #3498db;           /* Màu xanh nhấn nhá nhẹ nhàng */
+    text-decoration: none;
+}
+
+button {
     font-family: 'Inter', sans-serif;
-    background-color: #1a1a20;
-    color: #ffffff;
-    height: 100vh;
-    overflow: hidden;
+    padding: 10px 20px;
+    border-radius: 6px;       /* Bo góc nhẹ cho hiện đại */
+    border: 1px solid #333;
+    background-color: #1a1a1a;
+    color: #fff;
+    cursor: pointer;
+    transition: 0.3s;
 }
 
-.app-container {
-    display: flex;
-    height: 100vh;
-    width: 100vw;
-}
-
-.canvas-container {
-    flex: 1;
-    position: relative;
-    background-color: #24242b;
-    overflow: hidden;
+button:hover {
+    background-color: #333;
 }
