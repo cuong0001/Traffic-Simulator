@@ -1,0 +1,24 @@
+<input type="radio" name="view-ctrl" id="view-list" checked class="hidden-ctrl">
+<input type="radio" name="view-ctrl" id="view-form" class="hidden-ctrl">
+
+<div class="list-container">
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/grass-1.png', 'House')">
+        <img src="../assets/sprites/grass-1.png">
+        <span>House</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/grass-2.png', 'Company')">
+        <img src="../assets/sprites/grass-2.png">
+        <span>Company</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/grass-3.png', 'Apartment')">
+        <img src="../assets/sprites/grass-3.png">
+        <span>Apartment</span>
+    </label>
+</div>
+
+<div class="form-container">
+    <img id="form-img-preview" src="" alt="Preview">
+    <input type="text" id="form-name-input" placeholder="Nhập tên mới">
+    <button onclick="handleAdd()">Add</button>
+    <label for="view-list" class="back-action">Quay lại danh sách</label>
+</div>

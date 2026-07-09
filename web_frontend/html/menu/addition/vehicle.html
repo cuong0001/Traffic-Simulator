@@ -1,0 +1,40 @@
+<input type="radio" name="view-ctrl" id="view-list" checked class="hidden-ctrl">
+<input type="radio" name="view-ctrl" id="view-form" class="hidden-ctrl">
+
+<div class="list-container">
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/car-yellow.png', 'Yellow Car')">
+        <img src="../assets/sprites/car-yellow.png">
+        <span>Yellow Car</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/car-red.png', 'Red Car')">
+        <img src="../assets/sprites/car-red.png">
+        <span>Red Car</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/car-blue.png', 'Blue Car')">
+        <img src="../assets/sprites/car-blue.png">
+        <span>Blue Car</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/car-pink.png', 'Pink Car')">
+        <img src="../assets/sprites/car-pink.png">
+        <span>Pink Car</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/ambulnace-no.png', 'Tòa nhà B')">
+        <img src="../assets/sprites/ambulance-no.png">
+        <span>Ambulance</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/firetruck-no.png', 'Tòa nhà B')">
+        <img src="../assets/sprites/firetruck-no.png">
+        <span>Fire Truck</span>
+    </label>
+    <label for="view-form" class="selectable-item" onclick="prepareForm('../assets/sprites/police-no.png', 'Tòa nhà B')">
+        <img src="../assets/sprites/police-no.png">
+        <span>Police Car</span>
+    </label>
+</div>
+
+<div class="form-container">
+    <img id="form-img-preview" src="" alt="Preview">
+    <input type="text" id="form-name-input" placeholder="Nhập tên mới">
+    <button onclick="handleAdd()">Add</button>
+    <label for="view-list" class="back-action">Quay lại danh sách</label>
+</div>
