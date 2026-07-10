@@ -57,7 +57,7 @@
 .dropdown button {
     width: 100%;
     text-align: left;
-    background: none;
+    background: black;
     border: none;
     color: var(--text-main);
     padding: 8px 15px;
