@@ -22,7 +22,7 @@ public:
     double travel_cost;    //Travel time based on congestion level.
     double length;         //The length of the road.
     
-    Geometry* geometry; //Simulate the road using a function.
+    Geometry* geometry;     //Simulate the road using a function.
 
     //List of vehicles moving on this road.
     std::vector<Vehicle*> vehicles;
