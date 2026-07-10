@@ -19,7 +19,8 @@ public:
     bool is_internal;       //Check if this road belongs to the roundabout.
     double base_weight;     //Travel cost of this road in ideal conditions.
     double congestion_level;//Measuring traffic density of the road
-    double travel_cost;     //Total travel time with congestion level factor.
+    double travel_cost;    //Travel time based on congestion level.
+    double length;         //The length of the road.
     
     Geometry* geometry;     //Simulate the road using a function.
 
