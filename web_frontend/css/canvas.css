@@ -1,0 +1,15 @@
+.viewport {
+    position: absolute;
+    top: 40px; /* Điều chỉnh tùy theo độ cao thanh menu của bạn */
+    left: 0;
+    width: 100%;
+    height: calc(100vh - 60px);
+    background-color: #1a1a1a; /* Màu nền cho bản đồ */
+}
+
+#mainCanvas {
+    background-color: green;
+    display: block;
+    width: 100%;
+    height: 100%;
+}
