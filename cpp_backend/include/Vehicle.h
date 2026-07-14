@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-class Intersection;
+class Node;
 class Road;
 class Building;
 class TrafficGraph;
@@ -12,7 +12,7 @@ class Vehicle
 public:
     std::string id;
     Road* current_road; //the road the vehicle is on
-    Building* destination; //destination of vehicle
+    Node* destination; //destination of vehicle
     double position_on_road; //the distance traveled by the vehicle, measured from the start of the road
     double current_speed; //current speed of vehicle
     double max_speed; //max speed of vehicle
@@ -32,8 +32,8 @@ public:
     //Destructor
     virtual ~Vehicle() = default;
 
-    //Finding route from buiding A to building B
-    void request_route(TrafficGraph* graph, Building* start, Building* target);
+    //Finding route from node A to node B
+    void request_route(TrafficGraph* graph, Node* start, Node* target);
 
     //Update movement step-by-step based on delta time (dt).
     void step_by_step(double dt);
@@ -41,8 +41,8 @@ public:
     //Detecting obstacles or traffic jam to decide whether to slow down, stop, or change the route
     bool react_to_congestion();
 
-    //Refinding route from Intersection C to building B
-    void recompute_route(TrafficGraph* graph, Intersection* current, Building* target);
+    //Refinding route from node C to node B
+    void recompute_route(TrafficGraph* graph, Node* target);
 
     //Check if the vehicle has reached its destination.
     bool has_reached_destination() const;
@@ -64,5 +64,5 @@ public:
     double get_max_deceleration() const; //get maximum deceleration of vehicle
 
     //setter
-    void set_destination(Building* dest) { destination = dest; }
+    void set_destination(Node* dest) { destination = dest; }
 };
