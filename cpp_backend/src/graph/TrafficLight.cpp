@@ -9,25 +9,29 @@ TrafficLight::TrafficLight()
     : TrafficLight(DEFAULT_GREEN, DEFAULT_YELLOW, DEFAULT_RED, 2) {}
 
 TrafficLight::TrafficLight(double green, double yellow, double red, int groups)
-    : yellow(yellow), green(green), red(red), groups(groups),
-      state(2), // start in the green phase
-      remaining_yellow_time(yellow),
-      remaining_red_time(red),
-      remaining_green_time(green),
-      coordinate(0, 0) {}
+    : phase_dur{red, yellow, green},  // index by state: [0]=red, [1]=yellow, [2]=green
+      groups(groups),
+      state(2),               // start in the green phase
+      remaining_time(green) {}
 
-double TrafficLight::get_green_duration() const { return green; }
-double TrafficLight::get_yellow_duration() const { return yellow; }
-double TrafficLight::get_red_duration() const { return red; }
+double TrafficLight::get_green_duration() const { return phase_dur[2]; }
+double TrafficLight::get_yellow_duration() const { return phase_dur[1]; }
+double TrafficLight::get_red_duration() const { return phase_dur[0]; }
 int TrafficLight::get_groups() const { return groups; }
+
 unsigned int TrafficLight::get_state() const { return state; }
+double TrafficLight::get_remaining_time() const { return remaining_time; }
 
-double TrafficLight::get_remaining_yellow() { return remaining_yellow_time; }
-double TrafficLight::get_remaining_green() { return remaining_green_time; }
-double TrafficLight::get_remaining_red() { return remaining_red_time; }
-
-// Advance the light state by a time step dt (seconds)
-// TODO: decrease remaining_*_time by dt and switch green/yellow/red when a phase ends
+// Count down the current phase; when it runs out, switch to the next color and
+// reload its duration. The while loop + "+=" handles a dt larger than the phase
+// (e.g. a big time step) without drifting off the cycle.
 void TrafficLight::update(double dt) {
-    (void)dt;
+    const double cycle = phase_dur[0] + phase_dur[1] + phase_dur[2];
+    if (cycle <= 0.0) return;  // misconfigured light: nothing to advance
+
+    remaining_time -= dt;
+    while (remaining_time <= 0.0) {
+        state = (state == 2) ? 1 : (state == 1) ? 0 : 2;  // green -> yellow -> red -> green
+        remaining_time += phase_dur[state];
+    }
 }
