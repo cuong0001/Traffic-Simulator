@@ -13,7 +13,8 @@ Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_l
       capacity(capacity), is_one_way(is_one_way),
       is_internal(false), congestion_level(0.0), geometry(geometry) {
 
-    // Chiều dài lấy từ file map nếu có; nếu không thì đo bằng khoảng cách hình học.
+    // Length comes from the map file when given; otherwise measure it from the
+    // endpoints.
     if (length > 0.0) {
         this->length = length;
     } else {
@@ -22,7 +23,7 @@ Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_l
         this->length = std::sqrt(dx * dx + dy * dy);
     }
 
-    // base_weight = chi phí đi hết con đường trong điều kiện lý tưởng
+    // base_weight = cost of traversing the whole road under ideal conditions
     base_weight = this->length;
     travel_cost = base_weight;
 

@@ -6,14 +6,14 @@ class Road;
 
 class Node {
 public:
-    std::string name;         // Định danh (id) của node, dùng làm khóa trong TrafficGraph
-    std::string display_name; // Tên hiển thị, ví dụ "Hillside & 1st"
-    std::string zone;         // Khu vực chứa node ("", "downtown", "roundabout", ...)
+    std::string name;         // Node id, used as the key in TrafficGraph
+    std::string display_name; // Human-readable label, e.g. "Hillside & 1st"
+    std::string zone;         // Region the node sits in ("", "downtown", "roundabout", ...)
     double x;
     double y;
     bool is_building;
     bool is_roundabout;
-    bool is_signalized;       // Node có đèn giao thông hay không
+    bool is_signalized;       // Whether the node has a traffic light
     double radius;
     std::vector<Road*> outgoing_edges;
     std::vector<Road*> incoming_edges;

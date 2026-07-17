@@ -1,12 +1,12 @@
 #pragma once
 #include <string>
 
-// Vùng nền chỉ dùng để hiển thị ("CITY CENTER", "PARK", ...).
-// File map lưu vùng dưới dạng polygon; ta chỉ giữ hình chữ nhật bao của nó.
+// Display-only background region ("CITY CENTER", "PARK", ...).
+// The map stores a zone as a polygon; we keep only its bounding box.
 struct Zone {
     std::string name;
     std::string kind;
-    double x = 0.0;  // góc trái-trên
+    double x = 0.0;  // top-left corner
     double y = 0.0;
     double w = 0.0;
     double h = 0.0;

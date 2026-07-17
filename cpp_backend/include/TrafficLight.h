@@ -4,10 +4,10 @@
 
 class TrafficLight {
 private:
-  // Thời lượng mỗi pha (giây). File map lưu dưới dạng số thực (sgreen/samber/sred).
+  // Duration of each phase (seconds). The map stores these as reals (sgreen/samber/sred).
   double yellow, green, red;
 
-  // Số nhóm pha của nút giao (sgroups): 2 = hai hướng luân phiên.
+  // Number of signal groups at the junction (sgroups): 2 = two directions alternating.
   int groups;
 
   // 0 = red, 1 = yellow, 2 = green
@@ -19,7 +19,7 @@ private:
 public:
 
   TrafficLight();
-  // Đèn được nạp từ file map: thời lượng xanh/vàng/đỏ và số nhóm pha.
+  // Light loaded from the map file: green/yellow/red durations and group count.
   TrafficLight(double green, double yellow, double red, int groups = 2);
 
   double get_green_duration() const;
@@ -38,7 +38,7 @@ public:
 
   void create_obstacle_on_red();
 
-  // Cập nhật trạng thái đèn theo bước thời gian dt (giây)
+  // Advance the light state by a time step dt (seconds)
   void update(double dt);
 };
 
