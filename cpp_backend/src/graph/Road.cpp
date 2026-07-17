@@ -6,15 +6,25 @@
 #include <limits>
 #include <utility>
 
-Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_limit, Geometry* geometry)
+Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_limit,
+           int capacity, bool is_one_way, double length, Geometry* geometry)
     : id(std::move(id)), source(source), target(target),
       lanes(lanes), speed_limit(speed_limit),
+      capacity(capacity), is_one_way(is_one_way),
       is_internal(false), congestion_level(0.0), geometry(geometry) {
 
-    // base_weight = độ dài hình học của đường thẳng (chi phí trong điều kiện lý tưởng)
-    double dx = target->x - source->x;
-    double dy = target->y - source->y;
-    base_weight = std::sqrt(dx * dx + dy * dy);
+    // Length comes from the map file when given; otherwise measure it from the
+    // endpoints.
+    if (length > 0.0) {
+        this->length = length;
+    } else {
+        double dx = target->x - source->x;
+        double dy = target->y - source->y;
+        this->length = std::sqrt(dx * dx + dy * dy);
+    }
+
+    // base_weight = cost of traversing the whole road under ideal conditions
+    base_weight = this->length;
     travel_cost = base_weight;
 
     // Thêm cạnh vào danh sách kề của 2 Node để phục vụ duyệt đồ thị (tìm đường)

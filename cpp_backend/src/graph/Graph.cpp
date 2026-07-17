@@ -142,6 +142,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
 void TrafficGraph::create_directional_road(const std::string& edge_id, Node* source_node, Node* target_node, 
                                            int lanes, double speed_limit, bool is_one_way) {
     Road* new_road = new Road(edge_id, source_node, target_node, lanes, speed_limit);
+    new_road->is_one_way = is_one_way;
     edges[edge_id] = new_road;
 }
 

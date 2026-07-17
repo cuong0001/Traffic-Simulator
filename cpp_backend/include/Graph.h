@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
 #include <unordered_map>
+#include <vector>
+#include "Zone.h"
 
 // Dùng Forward Declaration thay vì #include để tối ưu thời gian Build và tránh lỗi Circular Dependency
 class Node;
@@ -13,7 +15,10 @@ public:
     std::unordered_map<std::string, Node*> nodes;
     std::unordered_map<std::string, Road*> edges;
     std::unordered_map<std::string, Building*> buildings;
+    std::vector<Zone> zones; // Display-only background regions, loaded from the GeoJSON map
 
+    // Construct an empty graph, then populate it with MapLoader
+    TrafficGraph() = default;
     // Khởi tạo Graph bằng đường dẫn file csv
     TrafficGraph(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     // Hủy Graph, giải phóng toàn bộ vùng nhớ của Node, Road, Building

@@ -1,32 +1,37 @@
 #ifndef TRAFFICLIGHT_H
 #define TRAFFICLIGHT_H
-#include "Road.h" 
 
 class TrafficLight {
-private:
-  unsigned int yellow, green, red;
+  private:
+    // Duration of each phase in seconds, indexed by state: [0]=red, [1]=yellow, [2]=green.
+    double phase_dur[3];
 
-  // 0 = red, 1 = yellow, 2 = green
-  unsigned int state;
+    // Number of phase groups: approaches on the same axis share a group and go
+    // green together.
+    int groups;
 
-  unsigned int remaining_yellow_time, remaining_red_time, remaining_green_time;
+    // --- Runtime state: changes every tick. ---
+    unsigned int state;    // current color: 0=red, 1=yellow, 2=green
+    double remaining_time; // seconds left in the current phase
 
-  std::pair<int,int> coordinate;
-public:
+  public:
+    TrafficLight();
+    // Light loaded from the map file: green/yellow/red durations and group count.
+    TrafficLight(double green, double yellow, double red, int groups = 2);
 
-  TrafficLight();
-  unsigned int get_remaining_yellow();
-  unsigned int get_remaining_green();
-  unsigned int get_remaining_red();
-  
-  unsigned int set_remaining_yellow();
-  unsigned int set_remaining_green();
-  unsigned int set_remaining_red();
-  
-  void create_obstacle_on_red();
+    // Read the phase durations (config), e.g. for saving the map or the UI.
+    double get_green_duration() const;
+    double get_yellow_duration() const;
+    double get_red_duration() const;
+    int get_groups() const;
 
-  // Cập nhật trạng thái đèn theo bước thời gian dt (giây)
-  void update(double dt);
+    // Read the live state.
+    unsigned int get_state() const;      // 0=red, 1=yellow, 2=green
+    double get_remaining_time() const;   // seconds left in the current phase
+
+    // Advance the light by a time step dt (seconds): count down the current
+    // phase and switch green -> yellow -> red -> green when it runs out.
+    void update(double dt);
 };
 
 #endif
