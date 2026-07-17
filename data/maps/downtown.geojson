@@ -1,0 +1,1174 @@
+{
+ "type": "FeatureCollection",
+ "generator": "csv_to_geojson.py",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "a",
+    "name": "a",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     900.0,
+     700.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "b",
+    "name": "b",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     1900.0,
+     400.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "c",
+    "name": "c",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     3000.0,
+     700.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "d",
+    "name": "d",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     1400.0,
+     1600.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "e",
+    "name": "e",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     2400.0,
+     1400.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "f",
+    "name": "f",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     3500.0,
+     1600.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "g",
+    "name": "g",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     900.0,
+     2500.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "h",
+    "name": "h",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     1900.0,
+     2200.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "i",
+    "name": "i",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     3000.0,
+     2500.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "p",
+    "name": "p",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     200.0,
+     1600.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "q",
+    "name": "q",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     400.0,
+     2900.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "r",
+    "name": "r",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     1900.0,
+     3100.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "s",
+    "name": "s",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     3900.0,
+     2600.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "t",
+    "name": "t",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4300.0,
+     1600.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "u",
+    "name": "u",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     3500.0,
+     200.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "v",
+    "name": "v",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     1900.0,
+     1200.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "node",
+    "id": "w",
+    "name": "w",
+    "zone": ""
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     200.0,
+     700.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "v_e",
+    "from": "v",
+    "to": "e",
+    "speed_kmh": 40.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      1200.0
+     ],
+     [
+      2400.0,
+      1400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "v_d",
+    "from": "v",
+    "to": "d",
+    "speed_kmh": 40.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      1200.0
+     ],
+     [
+      1400.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "a_b",
+    "from": "a",
+    "to": "b",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      900.0,
+      700.0
+     ],
+     [
+      1900.0,
+      400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "b_c",
+    "from": "b",
+    "to": "c",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      400.0
+     ],
+     [
+      3000.0,
+      700.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "a_d",
+    "from": "a",
+    "to": "d",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      900.0,
+      700.0
+     ],
+     [
+      1400.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "b_e",
+    "from": "b",
+    "to": "e",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      400.0
+     ],
+     [
+      2400.0,
+      1400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "c_e",
+    "from": "c",
+    "to": "e",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      3000.0,
+      700.0
+     ],
+     [
+      2400.0,
+      1400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "c_f",
+    "from": "c",
+    "to": "f",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      3000.0,
+      700.0
+     ],
+     [
+      3500.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "d_e",
+    "from": "d",
+    "to": "e",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1400.0,
+      1600.0
+     ],
+     [
+      2400.0,
+      1400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "e_f",
+    "from": "e",
+    "to": "f",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      2400.0,
+      1400.0
+     ],
+     [
+      3500.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "d_g",
+    "from": "d",
+    "to": "g",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1400.0,
+      1600.0
+     ],
+     [
+      900.0,
+      2500.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "d_h",
+    "from": "d",
+    "to": "h",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1400.0,
+      1600.0
+     ],
+     [
+      1900.0,
+      2200.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "e_h",
+    "from": "e",
+    "to": "h",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      2400.0,
+      1400.0
+     ],
+     [
+      1900.0,
+      2200.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "f_i",
+    "from": "f",
+    "to": "i",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      3500.0,
+      1600.0
+     ],
+     [
+      3000.0,
+      2500.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "g_h",
+    "from": "g",
+    "to": "h",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      900.0,
+      2500.0
+     ],
+     [
+      1900.0,
+      2200.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "h_i",
+    "from": "h",
+    "to": "i",
+    "speed_kmh": 50.0,
+    "lanes": 2,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      2200.0
+     ],
+     [
+      3000.0,
+      2500.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "p_d",
+    "from": "p",
+    "to": "d",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      200.0,
+      1600.0
+     ],
+     [
+      1400.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "q_g",
+    "from": "q",
+    "to": "g",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      400.0,
+      2900.0
+     ],
+     [
+      900.0,
+      2500.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "r_h",
+    "from": "r",
+    "to": "h",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      3100.0
+     ],
+     [
+      1900.0,
+      2200.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "s_i",
+    "from": "s",
+    "to": "i",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      3900.0,
+      2600.0
+     ],
+     [
+      3000.0,
+      2500.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "t_f",
+    "from": "t",
+    "to": "f",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      4300.0,
+      1600.0
+     ],
+     [
+      3500.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "u_f",
+    "from": "u",
+    "to": "f",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      3500.0,
+      200.0
+     ],
+     [
+      3500.0,
+      1600.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "v_b",
+    "from": "v",
+    "to": "b",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      1900.0,
+      1200.0
+     ],
+     [
+      1900.0,
+      400.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "road",
+    "id": "w_a",
+    "from": "w",
+    "to": "a",
+    "speed_kmh": 30.0,
+    "lanes": 1,
+    "oneway": false
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      200.0,
+      700.0
+     ],
+     [
+      900.0,
+      700.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "Supermarket",
+    "kind": "commercial",
+    "levels": 1,
+    "node": "p"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       20.0,
+       1420.0
+      ],
+      [
+       380.0,
+       1420.0
+      ],
+      [
+       380.0,
+       1780.0
+      ],
+      [
+       20.0,
+       1780.0
+      ],
+      [
+       20.0,
+       1420.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "High School",
+    "kind": "school",
+    "levels": 1,
+    "node": "q"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       220.0,
+       2720.0
+      ],
+      [
+       580.0,
+       2720.0
+      ],
+      [
+       580.0,
+       3080.0
+      ],
+      [
+       220.0,
+       3080.0
+      ],
+      [
+       220.0,
+       2720.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "Gas Station",
+    "kind": "commercial",
+    "levels": 1,
+    "node": "r"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       1720.0,
+       2920.0
+      ],
+      [
+       2080.0,
+       2920.0
+      ],
+      [
+       2080.0,
+       3280.0
+      ],
+      [
+       1720.0,
+       3280.0
+      ],
+      [
+       1720.0,
+       2920.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "East Residential",
+    "kind": "residential",
+    "levels": 1,
+    "node": "s"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       3720.0,
+       2420.0
+      ],
+      [
+       4080.0,
+       2420.0
+      ],
+      [
+       4080.0,
+       2780.0
+      ],
+      [
+       3720.0,
+       2780.0
+      ],
+      [
+       3720.0,
+       2420.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "General Hospital",
+    "kind": "hospital",
+    "levels": 1,
+    "node": "t"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       4120.0,
+       1420.0
+      ],
+      [
+       4480.0,
+       1420.0
+      ],
+      [
+       4480.0,
+       1780.0
+      ],
+      [
+       4120.0,
+       1780.0
+      ],
+      [
+       4120.0,
+       1420.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "Office Tower",
+    "kind": "commercial",
+    "levels": 1,
+    "node": "u"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       3320.0,
+       20.0
+      ],
+      [
+       3680.0,
+       20.0
+      ],
+      [
+       3680.0,
+       380.0
+      ],
+      [
+       3320.0,
+       380.0
+      ],
+      [
+       3320.0,
+       20.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "Central Park",
+    "kind": "park",
+    "levels": 1,
+    "node": "v"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       1720.0,
+       1020.0
+      ],
+      [
+       2080.0,
+       1020.0
+      ],
+      [
+       2080.0,
+       1380.0
+      ],
+      [
+       1720.0,
+       1380.0
+      ],
+      [
+       1720.0,
+       1020.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "uts:kind": "building",
+    "name": "West Residential",
+    "kind": "residential",
+    "levels": 1,
+    "node": "w"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       20.0,
+       520.0
+      ],
+      [
+       380.0,
+       520.0
+      ],
+      [
+       380.0,
+       880.0
+      ],
+      [
+       20.0,
+       880.0
+      ],
+      [
+       20.0,
+       520.0
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
