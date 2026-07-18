@@ -13,10 +13,10 @@ TrafficGraph::TrafficGraph(const std::string& node_path, const std::string& road
 
 // Hủy Graph, giải phóng toàn bộ vùng nhớ
 TrafficGraph::~TrafficGraph() {
-    for (auto& pair : nodes) {
+    for (auto& pair : intersections) {
         delete pair.second;
     }
-    nodes.clear();
+    intersections.clear();
 
     for (auto& pair : edges) {
         delete pair.second;
@@ -54,7 +54,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                     double y = std::stod(y_str);
                     
                     Intersection* new_node = new Intersection(id, x, y);
-                    nodes[id] = new_node;
+                    intersections[id] = new_node;
                 } catch (const std::exception& e) {
                     std::cerr << "Lỗi chuyển đổi dữ liệu Intersection: " << e.what() << " tại dòng: " << line << std::endl;
                 }
@@ -92,8 +92,8 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                     bool is_one_way = (is_oneway_str == "1");
 
                     // Chỉ tạo đường đi nếu cả 2 node source và target đều tồn tại
-                    if (nodes.count(source_id) && nodes.count(target_id)) {
-                        create_directional_road(edge_id, nodes[source_id], nodes[target_id], 
+                    if (intersections.count(source_id) && intersections.count(target_id)) {
+                        create_directional_road(edge_id, intersections[source_id], intersections[target_id],
                                                 lanes, speed_limit, is_one_way);
                     } else {
                         std::cerr << "Cảnh báo: Không tìm thấy Intersection cho cạnh " << edge_id << std::endl;
@@ -124,7 +124,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                 std::getline(ss, node_id, ',') &&
                 std::getline(ss, type, ',')) {
                 
-                if (nodes.count(node_id)) {
+                if (intersections.count(node_id)) {
                     Building* new_building = new Building(building_name, node_id, type);
                     buildings[building_name] = new_building;
                 } else {

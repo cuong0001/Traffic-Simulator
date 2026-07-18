@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Loaded '" << path << "':\n"
-              << "  nodes     = " << graph.nodes.size() << "\n"
+              << "  nodes     = " << graph.intersections.size() << "\n"
               << "  roads     = " << graph.edges.size() << "\n"
               << "  zones     = " << graph.zones.size() << "\n"
               << "  buildings = " << graph.buildings.size() << "\n";

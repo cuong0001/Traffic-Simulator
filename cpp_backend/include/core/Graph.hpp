@@ -12,7 +12,7 @@ class Building;
 class TrafficGraph {
 public:
     // Dùng unordered_map lưu trữ theo dạng (Tên/ID -> Con trỏ đối tượng)
-    std::unordered_map<std::string, Intersection*> nodes;
+    std::unordered_map<std::string, Intersection*> intersections;
     std::unordered_map<std::string, Road*> edges;
     std::unordered_map<std::string, Building*> buildings;
     std::vector<Zone> zones; // Display-only background regions, loaded from the GeoJSON map

@@ -17,13 +17,13 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
     while (!pq.empty()) pq.pop();
 
     // validate that both nodes exist in the graph
-    if (graph.nodes.find(start_id) == graph.nodes.end() ||
-        graph.nodes.find(end_id)   == graph.nodes.end())
+    if (graph.intersections.find(start_id) == graph.intersections.end() ||
+        graph.intersections.find(end_id)   == graph.intersections.end())
         return {};
 
     // Check if the start and end are the same node
     if (start_id == end_id)
-        return { graph.nodes.at(start_id) };
+        return { graph.intersections.at(start_id) };
 
     init_distances(graph, start_id);
 
@@ -39,7 +39,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Intersection* current = graph.nodes.at(current_name);
+        Intersection* current = graph.intersections.at(current_name);
 
         // Relax all outgoing edges
         for (Road* road : current->outgoing_edges) {
@@ -54,7 +54,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
 void Dijkstra::init_distances(const TrafficGraph& graph,
                                const std::string& start_id) {
     // Set all distances to infinity
-    for (auto& [name, node] : graph.nodes) {
+    for (auto& [name, node] : graph.intersections) {
         dist[name] = std::numeric_limits<double>::infinity();
         prev[name] = nullptr;
     }

@@ -71,7 +71,7 @@ void load_node(TrafficGraph& graph, const json& props, const json& geom,
     if (id.empty()) {
         throw MapLoadError("node feature is missing property 'id' in " + source);
     }
-    if (graph.nodes.count(id)) {
+    if (graph.intersections.count(id)) {
         throw MapLoadError("duplicate node id '" + id + "' in " + source);
     }
     double x = 0.0, y = 0.0;
@@ -90,7 +90,7 @@ void load_node(TrafficGraph& graph, const json& props, const json& geom,
             num_prop(props, "sred", 2.0),
             static_cast<int>(num_prop(props, "sgroups", 2)));
     }
-    graph.nodes[id] = node;
+    graph.intersections[id] = node;
 }
 
 void load_road(TrafficGraph& graph, const json& props, const std::string& source) {
@@ -100,9 +100,9 @@ void load_road(TrafficGraph& graph, const json& props, const std::string& source
     if (id.empty() || from.empty() || to.empty()) {
         throw MapLoadError("road feature is missing id/from/to in " + source);
     }
-    auto from_it = graph.nodes.find(from);
-    auto to_it = graph.nodes.find(to);
-    if (from_it == graph.nodes.end() || to_it == graph.nodes.end()) {
+    auto from_it = graph.intersections.find(from);
+    auto to_it = graph.intersections.find(to);
+    if (from_it == graph.intersections.end() || to_it == graph.intersections.end()) {
         throw MapLoadError("road '" + id + "' references an unknown node ('" +
                            from + "' -> '" + to + "') in " + source);
     }
@@ -229,7 +229,7 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
             load_node(graph, props, (*f)["geometry"], source_name);
         }
     }
-    if (graph.nodes.empty()) {
+    if (graph.intersections.empty()) {
         throw MapLoadError(source_name + " contains no nodes (empty graph)");
     }
 
@@ -248,12 +248,12 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
 }
 
 std::string MapLoader::validate(const TrafficGraph& graph) {
-    if (graph.nodes.empty()) return "graph is empty";
+    if (graph.intersections.empty()) return "graph is empty";
 
     // Single BFS from an arbitrary node following outgoing edges.
-    const std::string origin = graph.nodes.begin()->first;
+    const std::string origin = graph.intersections.begin()->first;
     std::unordered_set<std::string> reached{origin};
-    std::vector<const Intersection*> frontier{graph.nodes.begin()->second};
+    std::vector<const Intersection*> frontier{graph.intersections.begin()->second};
     for (std::size_t head = 0; head < frontier.size(); ++head) {
         for (const Road* road : frontier[head]->outgoing_edges) {
             if (reached.insert(road->target->name).second) {
@@ -261,7 +261,7 @@ std::string MapLoader::validate(const TrafficGraph& graph) {
             }
         }
     }
-    const std::size_t unreachable = graph.nodes.size() - reached.size();
+    const std::size_t unreachable = graph.intersections.size() - reached.size();
     if (unreachable > 0) {
         return std::to_string(unreachable) + " node(s) unreachable from '" + origin + "'";
     }

@@ -16,9 +16,9 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     visited.clear();
     prev.clear();
 
-    auto start_it = graph.nodes.find(start_id);
-    auto end_it   = graph.nodes.find(end_id);
-    if (start_it == graph.nodes.end() || end_it == graph.nodes.end())
+    auto start_it = graph.intersections.find(start_id);
+    auto end_it   = graph.intersections.find(end_id);
+    if (start_it == graph.intersections.end() || end_it == graph.intersections.end())
         return {};
 
     Intersection* start_node = start_it->second;
