@@ -18,7 +18,7 @@ public:
   void delete_road();
   void isolate_road(unsigned int timer);
   void delete_vehicle();
-// Các hàm event
+// Event handlers
   void vechicle_shutdown(Vehicle*);
   void death_related(Building*);
   

@@ -4,14 +4,14 @@
 #include <vector>
 #include "core/Zone.hpp"
 
-// Dùng Forward Declaration thay vì #include để tối ưu thời gian Build và tránh lỗi Circular Dependency
+// Use forward declarations instead of #include to speed up builds and avoid circular dependencies
 class Intersection;
 class Road;
 class Building;
 
 class TrafficGraph {
 public:
-    // Dùng unordered_map lưu trữ theo dạng (Tên/ID -> Con trỏ đối tượng)
+    // Store objects in unordered_maps keyed by name/ID -> object pointer
     std::unordered_map<std::string, Intersection*> intersections;
     std::unordered_map<std::string, Road*> edges;
     std::unordered_map<std::string, Building*> buildings;
@@ -19,15 +19,15 @@ public:
 
     // Construct an empty graph, then populate it with MapLoader
     TrafficGraph() = default;
-    // Khởi tạo Graph bằng đường dẫn file csv
+    // Build the graph from CSV file paths
     TrafficGraph(const std::string& node_path, const std::string& road_path, const std::string& building_path);
-    // Hủy Graph, giải phóng toàn bộ vùng nhớ của Intersection, Road, Building
+    // Destroy the graph, freeing all Intersection, Road, and Building memory
     ~TrafficGraph();
 
-    // Các hàm nạp dữ liệu và xây dựng đồ thị
+    // Data loading and graph construction
     void load_from_csv(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     void create_directional_road(const std::string& edge_id, Intersection* source_node, Intersection* target_node, int lanes, double speed_limit, bool is_one_way);
 
-    // Truy xuất
+    // Lookup
     Road* get_edge(const std::string& edge_name) const;
 }; 
