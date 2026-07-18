@@ -1,10 +1,10 @@
 // Small demo: load a map from a GeoJSON file and print a summary plus one
 // Dijkstra route.
-#include "include/Dijkstra.h"
-#include "include/Graph.h"
-#include "include/MapLoader.h"
-#include "include/Node.h"
-#include "include/Road.h"
+#include "Dijkstra.h"
+#include "Graph.h"
+#include "MapLoader.h"
+#include "Node.h"
+#include "Road.h"
 
 #include <iostream>
 #include <string>
