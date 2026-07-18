@@ -3,7 +3,7 @@
 #include "Dijkstra.h"
 #include "Graph.h"
 #include "MapLoader.h"
-#include "Node.h"
+#include "Intersection.h"
 #include "Road.h"
 
 #include <iostream>
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     // Print one short route with Dijkstra when start/end node ids are given.
     if (argc > 3) {
         Dijkstra dijkstra;
-        const std::vector<Node*> path_nodes = dijkstra.find_path(graph, argv[2], argv[3]);
+        const std::vector<Intersection*> path_nodes = dijkstra.find_path(graph, argv[2], argv[3]);
         std::cout << "\nDijkstra " << argv[2] << " -> " << argv[3] << ": ";
         if (path_nodes.empty()) {
             std::cout << "(no path)\n";

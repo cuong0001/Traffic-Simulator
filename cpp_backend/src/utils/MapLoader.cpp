@@ -2,7 +2,7 @@
 
 #include "../../include/Building.h"
 #include "../../include/Graph.h"
-#include "../../include/Node.h"
+#include "../../include/Intersection.h"
 #include "../../include/Road.h"
 #include "../../include/TrafficLight.h"
 #include "../../include/Zone.h"
@@ -79,7 +79,7 @@ void load_node(TrafficGraph& graph, const json& props, const json& geom,
         throw MapLoadError("node '" + id + "' has malformed coordinates in " + source);
     }
 
-    Node* node = new Node(id, x, y);
+    Intersection* node = new Intersection(id, x, y);
     node->display_name = str_prop(props, "name", id);
     node->zone = str_prop(props, "zone");
     node->is_roundabout = (node->zone == "roundabout");
@@ -253,7 +253,7 @@ std::string MapLoader::validate(const TrafficGraph& graph) {
     // Single BFS from an arbitrary node following outgoing edges.
     const std::string origin = graph.nodes.begin()->first;
     std::unordered_set<std::string> reached{origin};
-    std::vector<const Node*> frontier{graph.nodes.begin()->second};
+    std::vector<const Intersection*> frontier{graph.nodes.begin()->second};
     for (std::size_t head = 0; head < frontier.size(); ++head) {
         for (const Road* road : frontier[head]->outgoing_edges) {
             if (reached.insert(road->target->name).second) {

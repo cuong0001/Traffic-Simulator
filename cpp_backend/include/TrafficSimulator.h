@@ -4,7 +4,7 @@
 #include "Graph.h"
 #include "TrafficLight.h"
 #include "Vehicle.h"
-#include "Node.h"
+#include "Intersection.h"
 #include "building.h"
 
 class TrafficSimulator {

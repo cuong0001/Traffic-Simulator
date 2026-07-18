@@ -6,7 +6,7 @@
 class Building {
 public:
     std::string name;
-    std::string node_id;  // Node the building is anchored to ("" if display-only)
+    std::string node_id;  // Intersection the building is anchored to ("" if display-only)
     std::string type;     // "commercial", "hospital", "residential", ...
     int levels;           // Number of floors (used when drawing)
 

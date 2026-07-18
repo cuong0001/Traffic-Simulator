@@ -14,7 +14,7 @@ endif()
 # at link time).
 set(BACKEND_SOURCES
     cpp_backend/src/core/Graph.cpp
-    cpp_backend/src/core/Node.cpp
+    cpp_backend/src/core/Intersection.cpp
     cpp_backend/src/core/Road.cpp
     cpp_backend/src/core/Building.cpp
     cpp_backend/src/core/TrafficLight.cpp

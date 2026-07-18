@@ -1,5 +1,5 @@
 #include "../../include/Graph.h"
-#include "../../include/Node.h"
+#include "../../include/Intersection.h"
 #include "../../include/Road.h"
 #include "../../include/Building.h"
 #include <fstream>
@@ -53,10 +53,10 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                     double x = std::stod(x_str);
                     double y = std::stod(y_str);
                     
-                    Node* new_node = new Node(id, x, y);
+                    Intersection* new_node = new Intersection(id, x, y);
                     nodes[id] = new_node;
                 } catch (const std::exception& e) {
-                    std::cerr << "Lỗi chuyển đổi dữ liệu Node: " << e.what() << " tại dòng: " << line << std::endl;
+                    std::cerr << "Lỗi chuyển đổi dữ liệu Intersection: " << e.what() << " tại dòng: " << line << std::endl;
                 }
             }
         }
@@ -96,7 +96,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                         create_directional_road(edge_id, nodes[source_id], nodes[target_id], 
                                                 lanes, speed_limit, is_one_way);
                     } else {
-                        std::cerr << "Cảnh báo: Không tìm thấy Node cho cạnh " << edge_id << std::endl;
+                        std::cerr << "Cảnh báo: Không tìm thấy Intersection cho cạnh " << edge_id << std::endl;
                     }
                 } catch (const std::exception& e) {
                     std::cerr << "Lỗi chuyển đổi dữ liệu Road: " << e.what() << " tại dòng: " << line << std::endl;
@@ -128,7 +128,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
                     Building* new_building = new Building(building_name, node_id, type);
                     buildings[building_name] = new_building;
                 } else {
-                    std::cerr << "Cảnh báo: Không tìm thấy Node liên kết cho Building " << building_name << std::endl;
+                    std::cerr << "Cảnh báo: Không tìm thấy Intersection liên kết cho Building " << building_name << std::endl;
                 }
             }
         }
@@ -139,7 +139,7 @@ void TrafficGraph::load_from_csv(const std::string& node_path, const std::string
 }
 
 // Xây dựng đường đi (cạnh có hướng)
-void TrafficGraph::create_directional_road(const std::string& edge_id, Node* source_node, Node* target_node, 
+void TrafficGraph::create_directional_road(const std::string& edge_id, Intersection* source_node, Intersection* target_node, 
                                            int lanes, double speed_limit, bool is_one_way) {
     Road* new_road = new Road(edge_id, source_node, target_node, lanes, speed_limit);
     new_road->is_one_way = is_one_way;

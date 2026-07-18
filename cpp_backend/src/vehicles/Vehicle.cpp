@@ -1,6 +1,6 @@
 #include "../../include/Vehicle.h"
 #include "../../include/Road.h"
-#include "../../include/Node.h"
+#include "../../include/Intersection.h"
 #include "../../include/Graph.h"
 #include "../../include/Building.h"
 #include "../../include/Dijkstra.h"
@@ -12,21 +12,21 @@ Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_
       current_speed(0.0), max_speed(max_speed), accel(0.0), max_accel(max_accel),
       max_decel(max_decel), route_index(-1), is_reached_destination(false) {}
 
-void Vehicle::request_route(TrafficGraph* graph, Node* start, Node* target) {
+void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersection* target) {
     if (!graph || !start || !target) return;
 
     destination = target;
     is_reached_destination = false;
 
     Dijkstra router;
-    std::vector<Node*> node_path = router.find_path(*graph, start->name, target->name);
+    std::vector<Intersection*> node_path = router.find_path(*graph, start->name, target->name);
 
     route.clear();
 
     // List roads based on the node path
     for (size_t i = 0; i < node_path.size() - 1; ++i) {
-        Node* u = node_path[i];
-        Node* v = node_path[i + 1];
+        Intersection* u = node_path[i];
+        Intersection* v = node_path[i + 1];
         Road* found_road = nullptr;
 
         for (Road* road : u->outgoing_edges) {
@@ -108,7 +108,7 @@ bool Vehicle::react_to_congestion() {
     }
 
     // Check for traffic light at the end of the current road
-    Node* next_node = current_road->target;
+    Intersection* next_node = current_road->target;
     if (next_node && next_node->light_system) {
         double distance_to_intersection = current_road->length - position_on_road;
 
@@ -140,7 +140,7 @@ bool Vehicle::react_to_congestion() {
     return is_congested;
 }
 
-void Vehicle::recompute_route(TrafficGraph* graph, Node* target) {
+void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
     if (!graph || !target) return;
 
     destination = target;
@@ -151,13 +151,13 @@ void Vehicle::recompute_route(TrafficGraph* graph, Node* target) {
     std::string start_node_id = current_road ? current_road->target->name : "";
     if (start_node_id.empty()) return;
 
-    std::vector<Node*> node_path = router.find_path(*graph, start_node_id, target->name);
+    std::vector<Intersection*> node_path = router.find_path(*graph, start_node_id, target->name);
     std::vector<Road*> new_route;
 
     // List roads based on the node path
     for (size_t i = 0; i < node_path.size() - 1; ++i) {
-        Node* u = node_path[i];
-        Node* v = node_path[i + 1];
+        Intersection* u = node_path[i];
+        Intersection* v = node_path[i + 1];
         Road* found_road = nullptr;
         for (Road* road : u->outgoing_edges) {
             if (road->target == v) {

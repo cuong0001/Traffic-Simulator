@@ -3,7 +3,7 @@
 #include <vector>
 #include <utility>
 
-class Node;
+class Intersection;
 class Vehicle; 
 class Geometry; 
 
@@ -11,8 +11,8 @@ class Road {
 public:
     std::string id;
     
-    Node* source;
-    Node* target;
+    Intersection* source;
+    Intersection* target;
     
     int lanes;
     double speed_limit;
@@ -30,7 +30,7 @@ public:
     std::vector<Vehicle*> vehicles;
 
     //A length <= 0 means "measure it from the endpoints".
-    Road(std::string id, Node* source, Node* target, int lanes, double speed_limit,
+    Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,
          int capacity = 12, bool is_one_way = false, double length = 0.0,
          Geometry* geometry = nullptr);
 

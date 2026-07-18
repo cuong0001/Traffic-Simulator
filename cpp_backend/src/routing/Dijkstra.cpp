@@ -1,6 +1,6 @@
 #include "../../include/Dijkstra.h"
 #include "../../include/Graph.h"
-#include "../../include/Node.h"
+#include "../../include/Intersection.h"
 #include "../../include/Road.h"
 
 #include <queue>
@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <limits>
 
-std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
+std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
                                         const std::string& start_id,
                                         const std::string& end_id) {
     // clear state 
@@ -39,7 +39,7 @@ std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Node* current = graph.nodes.at(current_name);
+        Intersection* current = graph.nodes.at(current_name);
 
         // Relax all outgoing edges
         for (Road* road : current->outgoing_edges) {
@@ -64,8 +64,8 @@ void Dijkstra::init_distances(const TrafficGraph& graph,
     pq.push({ 0.0, start_id });
 }
 
-void Dijkstra::relax_edge(Node* current, Road* road) {
-    Node* neighbour = road->target;
+void Dijkstra::relax_edge(Intersection* current, Road* road) {
+    Intersection* neighbour = road->target;
     double new_dist = dist[current->name] + road->get_weight();
 
     if (new_dist < dist[neighbour->name]) {
@@ -75,9 +75,9 @@ void Dijkstra::relax_edge(Node* current, Road* road) {
     }
 }
 
-std::vector<Node*> Dijkstra::reconstruct_path(const std::string& start_id,
+std::vector<Intersection*> Dijkstra::reconstruct_path(const std::string& start_id,
                                                const std::string& end_id) {
-    std::unordered_map<std::string, Node*> node_of;
+    std::unordered_map<std::string, Intersection*> node_of;
 
     for (auto& [child_name, parent_ptr] : prev) {
         if (parent_ptr != nullptr) {
@@ -93,7 +93,7 @@ std::vector<Node*> Dijkstra::reconstruct_path(const std::string& start_id,
     }
 
     // Walk backwards from end to start following the prev chain to trace the dijkstra path
-    std::vector<Node*> path;
+    std::vector<Intersection*> path;
     std::string cur = end_id;
 
     while (true) {

@@ -1,12 +1,12 @@
 #include "../../include/Road.h"
-#include "../../include/Node.h"
+#include "../../include/Intersection.h"
 #include "../../include/Vehicle.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
 
-Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_limit,
+Road::Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,
            int capacity, bool is_one_way, double length, Geometry* geometry)
     : id(std::move(id)), source(source), target(target),
       lanes(lanes), speed_limit(speed_limit),
@@ -27,7 +27,7 @@ Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_l
     base_weight = this->length;
     travel_cost = base_weight;
 
-    // Thêm cạnh vào danh sách kề của 2 Node để phục vụ duyệt đồ thị (tìm đường)
+    // Thêm cạnh vào danh sách kề của 2 Intersection để phục vụ duyệt đồ thị (tìm đường)
     source->outgoing_edges.push_back(this);
     target->incoming_edges.push_back(this);
 }
