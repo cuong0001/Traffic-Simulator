@@ -19,8 +19,8 @@ public:
  *
  *   - "node"     Point       {id, name, zone, [signal, sgroups, sgreen, samber, sred]}
  *   - "road"     LineString  {id, from, to, [length, speed_kmh, capacity, lanes, oneway]}
- *   - "zone"     Polygon     {name, kind}          — display-only background region
- *   - "building" Polygon     {name, kind, levels, [node]}  — building with a footprint;
+ *   - "zone"     Polygon     {name, kind}          - display-only background region
+ *   - "building" Polygon     {name, kind, levels, [node]}  - building with a footprint;
  *                            optional "node" anchors the building to a node as a destination
  *
  * A two-way street is stored as ONE feature (oneway=false) and expands into

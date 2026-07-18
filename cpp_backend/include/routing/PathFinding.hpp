@@ -3,14 +3,14 @@
 #include <vector>
 
 class TrafficGraph;
-class Node;
+class Intersection;
 
 // Strategy interface for pathfinding algorithms
 class PathFinding {
 public:
     virtual ~PathFinding() = default;
 
-    virtual std::vector<Node*> find_path(const TrafficGraph& graph,
+    virtual std::vector<Intersection*> find_path(const TrafficGraph& graph,
                                          const std::string& start_id,
                                          const std::string& end_id) = 0;
 };

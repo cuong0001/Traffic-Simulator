@@ -1,12 +1,12 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "TrafficLight.h" 
+#include "core/TrafficLight.hpp" 
 class Road;
 
-class Node {
+class Intersection {
 public:
-    std::string name;         // Node id, used as the key in TrafficGraph
+    std::string name;         // Intersection id, used as the key in TrafficGraph
     std::string display_name; // Human-readable label, e.g. "Hillside & 1st"
     std::string zone;         // Region the node sits in ("", "downtown", "roundabout", ...)
     double x;
@@ -20,8 +20,8 @@ public:
 
     TrafficLight* light_system;
 
-    Node(std::string name, double x, double y);
-    ~Node(); 
+    Intersection(std::string name, double x, double y);
+    ~Intersection(); 
 
     bool is_intersection() const;
     void update(double dt); 

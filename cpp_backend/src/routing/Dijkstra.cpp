@@ -1,14 +1,14 @@
-#include "../../include/Dijkstra.h"
-#include "../../include/Graph.h"
-#include "../../include/Node.h"
-#include "../../include/Road.h"
+#include "routing/Dijkstra.hpp"
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
 
 #include <queue>
 #include <unordered_map>
 #include <algorithm>
 #include <limits>
 
-std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
+std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
                                         const std::string& start_id,
                                         const std::string& end_id) {
     // clear state 
@@ -17,13 +17,13 @@ std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
     while (!pq.empty()) pq.pop();
 
     // validate that both nodes exist in the graph
-    if (graph.nodes.find(start_id) == graph.nodes.end() ||
-        graph.nodes.find(end_id)   == graph.nodes.end())
+    if (graph.intersections.find(start_id) == graph.intersections.end() ||
+        graph.intersections.find(end_id)   == graph.intersections.end())
         return {};
 
     // Check if the start and end are the same node
     if (start_id == end_id)
-        return { graph.nodes.at(start_id) };
+        return { graph.intersections.at(start_id) };
 
     init_distances(graph, start_id);
 
@@ -39,7 +39,7 @@ std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Node* current = graph.nodes.at(current_name);
+        Intersection* current = graph.intersections.at(current_name);
 
         // Relax all outgoing edges
         for (Road* road : current->outgoing_edges) {
@@ -54,7 +54,7 @@ std::vector<Node*> Dijkstra::find_path(const TrafficGraph& graph,
 void Dijkstra::init_distances(const TrafficGraph& graph,
                                const std::string& start_id) {
     // Set all distances to infinity
-    for (auto& [name, node] : graph.nodes) {
+    for (auto& [name, node] : graph.intersections) {
         dist[name] = std::numeric_limits<double>::infinity();
         prev[name] = nullptr;
     }
@@ -64,8 +64,8 @@ void Dijkstra::init_distances(const TrafficGraph& graph,
     pq.push({ 0.0, start_id });
 }
 
-void Dijkstra::relax_edge(Node* current, Road* road) {
-    Node* neighbour = road->target;
+void Dijkstra::relax_edge(Intersection* current, Road* road) {
+    Intersection* neighbour = road->target;
     double new_dist = dist[current->name] + road->get_weight();
 
     if (new_dist < dist[neighbour->name]) {
@@ -75,9 +75,9 @@ void Dijkstra::relax_edge(Node* current, Road* road) {
     }
 }
 
-std::vector<Node*> Dijkstra::reconstruct_path(const std::string& start_id,
+std::vector<Intersection*> Dijkstra::reconstruct_path(const std::string& start_id,
                                                const std::string& end_id) {
-    std::unordered_map<std::string, Node*> node_of;
+    std::unordered_map<std::string, Intersection*> node_of;
 
     for (auto& [child_name, parent_ptr] : prev) {
         if (parent_ptr != nullptr) {
@@ -93,7 +93,7 @@ std::vector<Node*> Dijkstra::reconstruct_path(const std::string& start_id,
     }
 
     // Walk backwards from end to start following the prev chain to trace the dijkstra path
-    std::vector<Node*> path;
+    std::vector<Intersection*> path;
     std::string cur = end_id;
 
     while (true) {

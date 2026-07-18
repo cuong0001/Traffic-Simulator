@@ -4,23 +4,23 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
-#include "PathFinding.h"
+#include "routing/PathFinding.hpp"
 using namespace std;
 
 class TrafficGraph;
-class Node;
+class Intersection;
 class Road;
 
 class BFS : public PathFinding {
 public:
-    std::vector<Node*> find_path(const TrafficGraph& graph,
+    std::vector<Intersection*> find_path(const TrafficGraph& graph,
                                  const std::string& start_id,
                                  const std::string& end_id) override;
 
 private:
-    std::queue<Node*> front;
+    std::queue<Intersection*> front;
     std::unordered_set<std::string> visited;
-    std::unordered_map<std::string, Node*> prev;
-    std::vector<Node*> reconstruct_path(const std::string& start_id,
+    std::unordered_map<std::string, Intersection*> prev;
+    std::vector<Intersection*> reconstruct_path(const std::string& start_id,
                                          const std::string& end_id);
 };

@@ -1,11 +1,11 @@
 #ifndef TRAFFICSIMULATOR_H
 #define TRAFFICSIMULATOR_H
-#include "Road.h"
-#include "Graph.h"
-#include "TrafficLight.h"
-#include "Vehicle.h"
-#include "Node.h"
-#include "building.h"
+#include "core/Road.hpp"
+#include "core/Graph.hpp"
+#include "core/TrafficLight.hpp"
+#include "vehicles/Vehicle.hpp"
+#include "core/Intersection.hpp"
+#include "core/Building.hpp"
 
 class TrafficSimulator {
 private:
@@ -18,7 +18,7 @@ public:
   void delete_road();
   void isolate_road(unsigned int timer);
   void delete_vehicle();
-// Các hàm event
+// Event handlers
   void vechicle_shutdown(Vehicle*);
   void death_related(Building*);
   

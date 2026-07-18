@@ -1,12 +1,12 @@
-#include "../../include/Road.h"
-#include "../../include/Node.h"
-#include "../../include/Vehicle.h"
+#include "core/Road.hpp"
+#include "core/Intersection.hpp"
+#include "vehicles/Vehicle.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
 
-Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_limit,
+Road::Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,
            int capacity, bool is_one_way, double length, Geometry* geometry)
     : id(std::move(id)), source(source), target(target),
       lanes(lanes), speed_limit(speed_limit),
@@ -27,7 +27,7 @@ Road::Road(std::string id, Node* source, Node* target, int lanes, double speed_l
     base_weight = this->length;
     travel_cost = base_weight;
 
-    // Thêm cạnh vào danh sách kề của 2 Node để phục vụ duyệt đồ thị (tìm đường)
+    // Add this edge to both intersections' adjacency lists for graph traversal (pathfinding)
     source->outgoing_edges.push_back(this);
     target->incoming_edges.push_back(this);
 }
@@ -48,16 +48,16 @@ double Road::get_weight() const {
     return travel_cost;
 }
 
-// Cập nhật chi phí di chuyển theo mức độ tắc nghẽn hiện tại
+// Update travel cost based on the current congestion level
 void Road::update() {
     travel_cost = base_weight * (1.0 + congestion_level);
 }
 
-// Tìm xe gần nhất phía trước current_vehicle trên đường này (xe có
-// position_on_road nhỏ nhất trong số các xe nằm trước current_vehicle).
-// Trả về (xe phía trước, khoảng cách tới xe đó).
-// Nếu phía trước thông thoáng: trả về (nullptr, +infinity).
-// Nếu current_vehicle là nullptr (xe chuẩn bị đi vào đường này): tính từ đầu đường.
+// Find the nearest vehicle ahead of current_vehicle on this road (the one with
+// the smallest position_on_road among vehicles ahead of current_vehicle).
+// Returns (lead vehicle, distance to it).
+// If the road ahead is clear: returns (nullptr, +infinity).
+// If current_vehicle is nullptr (a vehicle about to enter this road): measured from the road start.
 std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
     double ref_position = current_vehicle ? current_vehicle->position_on_road : 0.0;
 

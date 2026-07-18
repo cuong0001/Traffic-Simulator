@@ -1,4 +1,4 @@
-#include "../../include/TrafficLight.h"
+#include "core/TrafficLight.hpp"
 
 // Default cycle (seconds), matching the map file's default values.
 static const double DEFAULT_GREEN  = 25.0;

@@ -1,10 +1,10 @@
 // Small demo: load a map from a GeoJSON file and print a summary plus one
 // Dijkstra route.
-#include "include/Dijkstra.h"
-#include "include/Graph.h"
-#include "include/MapLoader.h"
-#include "include/Node.h"
-#include "include/Road.h"
+#include "routing/Dijkstra.hpp"
+#include "core/Graph.hpp"
+#include "utils/MapLoader.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
 
 #include <iostream>
 #include <string>
@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Loaded '" << path << "':\n"
-              << "  nodes     = " << graph.nodes.size() << "\n"
+              << "  nodes     = " << graph.intersections.size() << "\n"
               << "  roads     = " << graph.edges.size() << "\n"
               << "  zones     = " << graph.zones.size() << "\n"
               << "  buildings = " << graph.buildings.size() << "\n";
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     // Print one short route with Dijkstra when start/end node ids are given.
     if (argc > 3) {
         Dijkstra dijkstra;
-        const std::vector<Node*> path_nodes = dijkstra.find_path(graph, argv[2], argv[3]);
+        const std::vector<Intersection*> path_nodes = dijkstra.find_path(graph, argv[2], argv[3]);
         std::cout << "\nDijkstra " << argv[2] << " -> " << argv[3] << ": ";
         if (path_nodes.empty()) {
             std::cout << "(no path)\n";

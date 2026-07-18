@@ -1,14 +1,14 @@
-#include "../../include/BFS.h"
-#include "../../include/Graph.h"
-#include "../../include/Node.h"
-#include "../../include/Road.h"
+#include "routing/BFS.hpp"
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
 
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
 
-std::vector<Node*> BFS::find_path(const TrafficGraph& graph,
+std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
                                    const std::string& start_id,
                                    const std::string& end_id) {
     // clear state
@@ -16,12 +16,12 @@ std::vector<Node*> BFS::find_path(const TrafficGraph& graph,
     visited.clear();
     prev.clear();
 
-    auto start_it = graph.nodes.find(start_id);
-    auto end_it   = graph.nodes.find(end_id);
-    if (start_it == graph.nodes.end() || end_it == graph.nodes.end())
+    auto start_it = graph.intersections.find(start_id);
+    auto end_it   = graph.intersections.find(end_id);
+    if (start_it == graph.intersections.end() || end_it == graph.intersections.end())
         return {};
 
-    Node* start_node = start_it->second;
+    Intersection* start_node = start_it->second;
 
     // Seed the BFS
     front.push(start_node);
@@ -29,7 +29,7 @@ std::vector<Node*> BFS::find_path(const TrafficGraph& graph,
     prev[start_id] = nullptr;          
 
     while (!front.empty()) {
-        Node* current = front.front();
+        Intersection* current = front.front();
         front.pop();
 
         // Goal check
@@ -38,7 +38,7 @@ std::vector<Node*> BFS::find_path(const TrafficGraph& graph,
 
         // Expand neighbours via outgoing roads
         for (Road* road : current->outgoing_edges) {
-            Node* neighbour = road->target;
+            Intersection* neighbour = road->target;
             if (visited.find(neighbour->name) == visited.end()) {
                 visited.insert(neighbour->name);
                 prev[neighbour->name] = current;   // record parent
@@ -51,13 +51,13 @@ std::vector<Node*> BFS::find_path(const TrafficGraph& graph,
     return {};
 }
 
-std::vector<Node*> BFS::reconstruct_path(const std::string& start_id,
+std::vector<Intersection*> BFS::reconstruct_path(const std::string& start_id,
                                           const std::string& end_id) {
-    std::unordered_map<std::string, Node*> node_of;
+    std::unordered_map<std::string, Intersection*> node_of;
 
     for (auto& [child_name, parent_ptr] : prev) {
         if (parent_ptr != nullptr) {
-            // The child Node* lives in the parent's outgoing edges
+            // The child Intersection* lives in the parent's outgoing edges
             for (Road* road : parent_ptr->outgoing_edges) {
                 if (road->target->name == child_name) {
                     node_of[child_name] = road->target;
@@ -70,7 +70,7 @@ std::vector<Node*> BFS::reconstruct_path(const std::string& start_id,
     }
 
     // Walk backwards from end to start using the prev chain to trace the bfs path
-    std::vector<Node*> path;
+    std::vector<Intersection*> path;
     std::string cur = end_id;
 
     while (true) {
