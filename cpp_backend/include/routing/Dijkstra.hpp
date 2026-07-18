@@ -3,7 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <queue>
-#include "PathFinding.h"
+#include "routing/PathFinding.hpp"
 using namespace std;
 class TrafficGraph;
 class Intersection;

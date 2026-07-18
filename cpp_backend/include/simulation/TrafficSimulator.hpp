@@ -1,11 +1,11 @@
 #ifndef TRAFFICSIMULATOR_H
 #define TRAFFICSIMULATOR_H
-#include "Road.h"
-#include "Graph.h"
-#include "TrafficLight.h"
-#include "Vehicle.h"
-#include "Intersection.h"
-#include "building.h"
+#include "core/Road.hpp"
+#include "core/Graph.hpp"
+#include "core/TrafficLight.hpp"
+#include "vehicles/Vehicle.hpp"
+#include "core/Intersection.hpp"
+#include "core/Building.hpp"
 
 class TrafficSimulator {
 private:

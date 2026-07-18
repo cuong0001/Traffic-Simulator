@@ -1,7 +1,7 @@
-#include "../../include/Graph.h"
-#include "../../include/Intersection.h"
-#include "../../include/Road.h"
-#include "../../include/Building.h"
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
+#include "core/Building.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>

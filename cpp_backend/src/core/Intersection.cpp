@@ -1,5 +1,5 @@
-#include "../../include/Intersection.h"
-#include "../../include/Road.h"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
 #include <utility>
 
 Intersection::Intersection(std::string name, double x, double y)

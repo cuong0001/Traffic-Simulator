@@ -1,4 +1,4 @@
-#include "../../include/Building.h"
+#include "core/Building.hpp"
 #include <utility>
 
 Building::Building(std::string name, std::string node_id, std::string type)

@@ -1,6 +1,6 @@
-#include "../../include/Road.h"
-#include "../../include/Intersection.h"
-#include "../../include/Vehicle.h"
+#include "core/Road.hpp"
+#include "core/Intersection.hpp"
+#include "vehicles/Vehicle.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>

@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
-#include "PathFinding.h"
+#include "routing/PathFinding.hpp"
 using namespace std;
 
 class TrafficGraph;

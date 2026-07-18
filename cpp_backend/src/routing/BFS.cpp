@@ -1,7 +1,7 @@
-#include "../../include/BFS.h"
-#include "../../include/Graph.h"
-#include "../../include/Intersection.h"
-#include "../../include/Road.h"
+#include "routing/BFS.hpp"
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
 
 #include <queue>
 #include <unordered_map>

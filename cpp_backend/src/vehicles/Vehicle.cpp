@@ -1,9 +1,9 @@
-#include "../../include/Vehicle.h"
-#include "../../include/Road.h"
-#include "../../include/Intersection.h"
-#include "../../include/Graph.h"
-#include "../../include/Building.h"
-#include "../../include/Dijkstra.h"
+#include "vehicles/Vehicle.hpp"
+#include "core/Road.hpp"
+#include "core/Intersection.hpp"
+#include "core/Graph.hpp"
+#include "core/Building.hpp"
+#include "routing/Dijkstra.hpp"
 #include <algorithm>
 #include <iostream>
 

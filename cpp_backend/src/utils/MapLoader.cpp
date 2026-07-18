@@ -1,12 +1,12 @@
-#include "../../include/MapLoader.h"
+#include "utils/MapLoader.hpp"
 
-#include "../../include/Building.h"
-#include "../../include/Graph.h"
-#include "../../include/Intersection.h"
-#include "../../include/Road.h"
-#include "../../include/TrafficLight.h"
-#include "../../include/Zone.h"
-#include "../../include/third_party/nlohmann/json.hpp"
+#include "core/Building.hpp"
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
+#include "core/TrafficLight.hpp"
+#include "core/Zone.hpp"
+#include "third_party/nlohmann/json.hpp"
 
 #include <algorithm>
 #include <fstream>
