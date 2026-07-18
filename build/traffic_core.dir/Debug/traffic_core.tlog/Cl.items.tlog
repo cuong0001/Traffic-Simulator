@@ -1,0 +1,8 @@
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\core\Graph.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\Graph.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\core\Intersection.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\Intersection.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\core\Road.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\Road.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\core\Building.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\Building.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\core\TrafficLight.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\TrafficLight.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\routing\Dijkstra.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\Dijkstra.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\routing\BFS.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\BFS.obj
+C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\cpp_backend\src\utils\MapLoader.cpp;C:\Users\G14\Documents\! uni\1st\OOP\! proj\Traffic-Simulator\build\traffic_core.dir\Debug\MapLoader.obj

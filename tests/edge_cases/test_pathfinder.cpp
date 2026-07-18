@@ -1,0 +1,266 @@
+// Edge-case tests for Dijkstra & BFS through the PathFinding strategy interface.
+//A* should also be added here whenever it's ready :skull:
+// Uses doctest (header-only, v2.4.11). Quick syntax reference:
+//
+//   TEST_SUITE("Group name") {         -- optional grouping
+//     TEST_CASE("description") {       -- one test
+//       REQUIRE(expr);                 -- hard assert (stops test on failure)
+//       CHECK(expr);                   -- soft assert (continues on failure)
+//       CHECK_FALSE(expr);             -- assert expr is false
+//       REQUIRE_THROWS(expr);          -- assert an exception is thrown
+//       INFO("x = " << x);            -- context printed only on failure
+//       SUBCASE("variant") { ... }     -- inline parameterisation
+//     }
+//   }
+//
+// Build & run:
+//   cmake -S . -B build
+//   cmake --build build --target test_pathfinder_edge
+//   ./build/Debug/test_pathfinder_edge             (Windows)
+//   ./build/test_pathfinder_edge                   (Linux/Mac)
+//
+// Adding a new test:
+//   1. Write a TEST_CASE inside the existing TEST_SUITE block.
+//   2. Build a TrafficGraph in-memory (see unit_tests/test_pathfinder.cpp helpers or inline).
+//   3. Call find_path() through PathFinding*, Dijkstra, or BFS.
+//   4. Assert with CHECK / REQUIRE.
+
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "third_party/doctest/doctest.h"
+
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
+#include "routing/PathFinding.hpp"
+#include "routing/Dijkstra.hpp"
+#include "routing/BFS.hpp"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+static std::vector<std::string> names_of(const std::vector<Intersection*>& path) {
+    std::vector<std::string> out;
+    out.reserve(path.size());
+    for (Intersection* n : path) out.push_back(n->name);
+    return out;
+}
+
+TEST_SUITE("PathFinding – Edge Cases") {
+
+    TEST_CASE("Non-existent start node returns empty path") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        CHECK(dijk.find_path(*g, "GHOST", "A").empty());
+        CHECK(bfs.find_path(*g, "GHOST", "A").empty());
+    }
+
+    TEST_CASE("Non-existent end node returns empty path") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        CHECK(dijk.find_path(*g, "A", "GHOST").empty());
+        CHECK(bfs.find_path(*g, "A", "GHOST").empty());
+    }
+
+    TEST_CASE("Both nodes non-existent returns empty path") {
+        TrafficGraph g;
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        CHECK(dijk.find_path(g, "X", "Y").empty());
+        CHECK(bfs.find_path(g, "X", "Y").empty());
+    }
+
+    TEST_CASE("Empty graph returns empty path") {
+        TrafficGraph g;
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        CHECK(dijk.find_path(g, "A", "B").empty());
+        CHECK(bfs.find_path(g, "A", "B").empty());
+    }
+
+    TEST_CASE("Single node, self-path") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["X"] = new Intersection("X", 0, 0);
+
+        Dijkstra dijk;
+        auto pd = dijk.find_path(*g, "X", "X");
+        REQUIRE(pd.size() == 1);
+        CHECK(pd[0]->name == "X");
+    }
+
+    TEST_CASE("Two disconnected components – no cross-component path") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 1, 0);
+        g->intersections["C"] = new Intersection("C", 10, 0);
+        g->intersections["D"] = new Intersection("D", 11, 0);
+
+        // Component 1: A→B
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        // Component 2: C→D
+        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        SUBCASE("Within a component succeeds") {
+            CHECK_FALSE(dijk.find_path(*g, "A", "B").empty());
+            CHECK_FALSE(bfs.find_path(*g, "A", "B").empty());
+        }
+
+        SUBCASE("Cross-component returns empty") {
+            CHECK(dijk.find_path(*g, "A", "D").empty());
+            CHECK(bfs.find_path(*g, "A", "D").empty());
+            CHECK(dijk.find_path(*g, "C", "B").empty());
+            CHECK(bfs.find_path(*g, "C", "B").empty());
+        }
+    }
+
+    TEST_CASE("Cycle – algorithms terminate and find the exit") {
+        //  A → B → C → A (cycle) and C → D (exit)
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 1, 0);
+        g->intersections["C"] = new Intersection("C", 2, 0);
+        g->intersections["D"] = new Intersection("D", 3, 0);
+
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["BC"] = new Road("BC", g->intersections["B"], g->intersections["C"], 1, 50, 12, true, 1.0);
+        g->edges["CA"] = new Road("CA", g->intersections["C"], g->intersections["A"], 1, 50, 12, true, 1.0);
+        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        auto pd = dijk.find_path(*g, "A", "D");
+        auto pb = bfs.find_path(*g, "A", "D");
+
+        std::vector<std::string> expected = {"A", "B", "C", "D"};
+        CHECK(names_of(pd) == expected);
+        CHECK(names_of(pb) == expected);
+    }
+
+    TEST_CASE("Reverse direction – unreachable despite edge existing") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 1, 0);
+
+        // Only A→B, not B→A
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        CHECK_FALSE(dijk.find_path(*g, "A", "B").empty());
+        CHECK_FALSE(bfs.find_path(*g, "A", "B").empty());
+
+        CHECK(dijk.find_path(*g, "B", "A").empty());
+        CHECK(bfs.find_path(*g, "B", "A").empty());
+    }
+
+    TEST_CASE("Two equal-weight paths – Dijkstra returns one of them") {
+        //  A →(5)→ B →(5)→ D
+        //  A →(5)→ C →(5)→ D
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 5, 5);
+        g->intersections["C"] = new Intersection("C", 5, -5);
+        g->intersections["D"] = new Intersection("D", 10, 0);
+
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 5.0);
+        g->edges["BD"] = new Road("BD", g->intersections["B"], g->intersections["D"], 1, 50, 12, true, 5.0);
+        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 5.0);
+        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 5.0);
+
+        Dijkstra dijk;
+        auto ids = names_of(dijk.find_path(*g, "A", "D"));
+
+        REQUIRE(ids.size() == 3);
+        CHECK(ids.front() == "A");
+        CHECK(ids.back()  == "D");
+        CHECK((ids[1] == "B" || ids[1] == "C"));
+    }
+
+    TEST_CASE("Star topology – hub to leaves, no leaf-to-leaf path") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["H"]  = new Intersection("H", 0, 0);
+        g->intersections["L1"] = new Intersection("L1", 1, 0);
+        g->intersections["L2"] = new Intersection("L2", 0, 1);
+        g->intersections["L3"] = new Intersection("L3", -1, 0);
+
+        g->edges["HL1"] = new Road("HL1", g->intersections["H"], g->intersections["L1"], 1, 50, 12, true, 1.0);
+        g->edges["HL2"] = new Road("HL2", g->intersections["H"], g->intersections["L2"], 1, 50, 12, true, 1.0);
+        g->edges["HL3"] = new Road("HL3", g->intersections["H"], g->intersections["L3"], 1, 50, 12, true, 1.0);
+
+        Dijkstra dijk;
+        BFS bfs;
+
+        for (const char* leaf : {"L1", "L2", "L3"}) {
+            INFO("Hub -> " << leaf);
+            CHECK(dijk.find_path(*g, "H", leaf).size() == 2);
+            CHECK(bfs.find_path(*g, "H", leaf).size() == 2);
+        }
+
+        CHECK(dijk.find_path(*g, "L1", "L2").empty());
+        CHECK(bfs.find_path(*g, "L1", "L2").empty());
+    }
+
+    TEST_CASE("Large linear chain – correctness at scale (200 nodes)") {
+        const int N = 200;
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        for (int i = 0; i < N; ++i) {
+            std::string id = "N" + std::to_string(i);
+            g->intersections[id] = new Intersection(id, static_cast<double>(i), 0);
+        }
+        for (int i = 0; i + 1 < N; ++i) {
+            std::string src = "N" + std::to_string(i);
+            std::string dst = "N" + std::to_string(i + 1);
+            std::string eid = src + "_" + dst;
+            g->edges[eid] = new Road(eid, g->intersections[src], g->intersections[dst], 1, 50, 12, true, 1.0);
+        }
+
+        Dijkstra dijk;
+        BFS bfs;
+        std::string last = "N" + std::to_string(N - 1);
+
+        CHECK(static_cast<int>(dijk.find_path(*g, "N0", last).size()) == N);
+        CHECK(static_cast<int>(bfs.find_path(*g, "N0", last).size()) == N);
+    }
+
+    TEST_CASE("Runtime strategy swap – strategy pattern demonstration") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 10, 0);
+        g->intersections["C"] = new Intersection("C", 3, 3);
+        g->intersections["D"] = new Intersection("D", 7, 3);
+
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
+        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
+        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+
+        // Start with Dijkstra strategy
+        std::unique_ptr<PathFinding> strategy(new Dijkstra());
+        auto p1 = strategy->find_path(*g, "A", "B");
+        CHECK(names_of(p1).size() == 4); // A→C→D→B (cheapest)
+
+        // Swap to BFS at runtime
+        strategy.reset(new BFS());
+        auto p2 = strategy->find_path(*g, "A", "B");
+        CHECK(names_of(p2).size() == 2); // A→B (fewest hops)
+    }
+
+} // TEST_SUITE

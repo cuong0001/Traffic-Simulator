@@ -1,0 +1,10 @@
+^C:\USERS\G14\DOCUMENTS\! UNI\1ST\OOP\! PROJ\TRAFFIC-SIMULATOR\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator" "-BC:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build" --check-stamp-file "C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
