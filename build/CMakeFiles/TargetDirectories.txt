@@ -1,6 +1,0 @@
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/traffic_core.dir
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/traffic_simulator.dir
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/test_pathfinder_unit.dir
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/test_pathfinder_edge.dir
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/G14/Documents/! uni/1st/OOP/! proj/Traffic-Simulator/build/CMakeFiles/ZERO_CHECK.dir
