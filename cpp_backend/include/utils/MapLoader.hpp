@@ -39,4 +39,14 @@ public:
     // Post-load check: returns a warning string if the graph is empty or has
     // nodes unreachable from the first node; returns "" if the graph is fine.
     static std::string validate(const TrafficGraph& graph);
+
+    // Serialize the loaded graph to a compact JSON the web UI can draw, and
+    // write it to `path`. This is the static map the frontend fetches once:
+    //   { intersections:[{id,x,y,zone,signal}],
+    //     roads:[{id,from,to,length,lanes,speed_kmh,oneway}],
+    //     buildings:[{name,kind,levels,footprint:[[x,y],...]}],
+    //     zones:[{name,kind,x,y,w,h}] }
+    // Two-way roads are emitted once (the "_r" reverse twin is skipped).
+    // Throws MapLoadError if the file cannot be written.
+    static void write_map_json(const TrafficGraph& graph, const std::string& path);
 };
