@@ -1,80 +1,66 @@
-import { openSidebar, closeSidebar } from './menu.js';
+// App entry: load the static map from the backend and draw it.
+// (No vehicles yet — this is just the map-loading view.)
 
+import { openSidebar, closeSidebar, prepareForm, handleAdd } from './menu.js';
+import { add } from './features.js';
+import { Camera } from './camera.js';
+import { loadMap } from './api.js';
+import { MapView } from './map_view.js';
+
+// Expose the menu/sidebar handlers used by the injected HTML (onclick=...).
 window.openSidebar = openSidebar;
 window.closeSidebar = closeSidebar;
-
-import { prepareForm, handleAdd } from './menu.js';
-
 window.prepareForm = prepareForm;
 window.handleAdd = handleAdd;
-
-import { add } from './features.js';
-
 window.add = add;
-
-import { World, Road, Building, Intersection, Vehicle, TrafficLight, Decoration } from './objects.js';
-import { Camera } from './camera.js';
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
-
-const world = new World();
 const camera = new Camera(canvas);
 
-// Cấu hình kích thước canvas
+let mapView = null;      // set once the map JSON has loaded
+let fitted = false;      // fit the camera once, after the first resize+load
+
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    if (mapView && !fitted) { mapView.fit(camera, canvas); fitted = true; }
+    camera.dirty = true;
 }
 window.addEventListener('resize', resize);
 resize();
 
-// Khởi tạo đối tượng mẫu
-function init() {
-// 1. Vẽ các con đường (Road)
-    world.addObject(new Road(1, "Đường Chính", {x: -400, y: 0}, {x: 400, y: 0}, 70));
-    world.addObject(new Road(2, "Đường Phụ", {x: 0, y: -400}, {x: 0, y: 400}, 70));
-    world.addObject(new Intersection(3, "Trung tâm", {x: 0, y: 0}, 4, 0, 70));
-
-    // 2. Tòa nhà (Sử dụng building-1, 2, 3 và hospital, firestation, policestation)
-    const buildings = [
-        { name: "City Hall", pos: {x: -150, y: -150}, link: '../assets/sprites/building-1.png' },
-        { name: "Hospital", pos: {x: 150, y: -150}, link: '../assets/sprites/hospital.png' },
-        { name: "Police", pos: {x: -150, y: 150}, link: '../assets/sprites/policestation.png' },
-        { name: "Fire Dept", pos: {x: 150, y: 150}, link: '../assets/sprites/firestation.png' }
-    ];
-    buildings.forEach((b, i) => {
-        world.addObject(new Building(10 + i, b.name, 80, 80, "Service", b.pos, b.link));
-    });
-
-    // 3. Trang trí (Sử dụng nhiều loại cây khác nhau)
-    const treeTypes = ['../assets/sprites/tree-1.png', '../assets/sprites/tree-2.png', '../assets/sprites/tree-3.png', '../assets/sprites/tree-4.png'];
-    // Rải cây xung quanh các tòa nhà
-    for(let i = 0; i < 8; i++) {
-        const x = (i % 2 === 0 ? 250 : -250) + (Math.random() * 50);
-        const y = (i < 4 ? 250 : -250) + (Math.random() * 50);
-        world.addObject(new Decoration(100 + i, {x, y}, "Cây xanh", treeTypes[i % 4]));
-    }
-
-    // 4. Xe cộ (Sử dụng các màu xe bạn có)
-    world.addObject(new Vehicle(200, {x: -200, y: 10}, 0, '../assets/sprites/car-blue.png'));
-    world.addObject(new Vehicle(201, {x: 200, y: -10}, 180, '../assets/sprites/car-red.png'));
-    world.addObject(new Vehicle(202, {x: -10, y: -200}, 90, '../assets/sprites/car-yellow.png'));
-
-    // 5. Đèn giao thông (Sử dụng link gốc và code sẽ tự chuyển đổi nếu bạn nâng cấp hàm)
-    world.addObject(new TrafficLight(300, '../assets/sprites/trafficlight.png', {x: 35, y: -35}, 2000, 0, "yellow"));
-}
-
-// Vòng lặp chính
+// Render only when the view changed. A city-scale map is tens of thousands of
+// shapes, so redrawing every frame would be needlessly heavy.
 function animate() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    camera.begin(ctx);
-    world.draw(ctx);
-    camera.end(ctx);
-
+    if (mapView && camera.dirty) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        camera.begin(ctx);
+        mapView.draw(ctx);
+        camera.end(ctx);
+        camera.dirty = false;
+    }
     requestAnimationFrame(animate);
 }
 
-init();
+// Load the map, then start drawing.
+async function start() {
+    try {
+        const data = await loadMap();
+        mapView = new MapView(data);
+        mapView.fit(camera, canvas);
+        fitted = true;
+        camera.dirty = true;
+        console.log(`Map loaded: ${data.intersections.length} intersections, ` +
+                    `${data.roads.length} roads, ${(data.buildings || []).length} buildings.`);
+    } catch (err) {
+        console.error(err);
+        // Show the reason on the canvas so it's obvious the fetch failed.
+        ctx.fillStyle = '#f87171';
+        ctx.font = '16px Inter, sans-serif';
+        ctx.fillText(String(err.message || err), 24, 40);
+    }
+}
+
+start();
 animate();
