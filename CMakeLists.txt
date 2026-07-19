@@ -20,6 +20,7 @@ set(BACKEND_SOURCES
     cpp_backend/src/core/TrafficLight.cpp
     cpp_backend/src/routing/Dijkstra.cpp
     cpp_backend/src/routing/BFS.cpp
+    cpp_backend/src/routing/AStar.cpp
     cpp_backend/src/utils/MapLoader.cpp
 )
 
