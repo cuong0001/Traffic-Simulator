@@ -1,5 +1,4 @@
-// Edge-case tests for Dijkstra & BFS through the PathFinding strategy interface.
-//A* should also be added here whenever it's ready :skull:
+// Edge-case tests for Dijkstra, BFS & A* through the PathFinding strategy interface.
 // Uses doctest (header-only, v2.4.11). Quick syntax reference:
 //
 //   TEST_SUITE("Group name") {         -- optional grouping
@@ -35,6 +34,7 @@
 #include "routing/PathFinding.hpp"
 #include "routing/Dijkstra.hpp"
 #include "routing/BFS.hpp"
+#include "routing/AStar.hpp"
 
 #include <memory>
 #include <string>
@@ -55,9 +55,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         CHECK(dijk.find_path(*g, "GHOST", "A").empty());
         CHECK(bfs.find_path(*g, "GHOST", "A").empty());
+        CHECK(astar.find_path(*g, "GHOST", "A").empty());
     }
 
     TEST_CASE("Non-existent end node returns empty path") {
@@ -66,9 +68,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         CHECK(dijk.find_path(*g, "A", "GHOST").empty());
         CHECK(bfs.find_path(*g, "A", "GHOST").empty());
+        CHECK(astar.find_path(*g, "A", "GHOST").empty());
     }
 
     TEST_CASE("Both nodes non-existent returns empty path") {
@@ -76,9 +80,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         CHECK(dijk.find_path(g, "X", "Y").empty());
         CHECK(bfs.find_path(g, "X", "Y").empty());
+        CHECK(astar.find_path(g, "X", "Y").empty());
     }
 
     TEST_CASE("Empty graph returns empty path") {
@@ -86,9 +92,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         CHECK(dijk.find_path(g, "A", "B").empty());
         CHECK(bfs.find_path(g, "A", "B").empty());
+        CHECK(astar.find_path(g, "A", "B").empty());
     }
 
     TEST_CASE("Single node, self-path") {
@@ -99,6 +107,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
         auto pd = dijk.find_path(*g, "X", "X");
         REQUIRE(pd.size() == 1);
         CHECK(pd[0]->name == "X");
+
+        AStar astar;
+        auto pa = astar.find_path(*g, "X", "X");
+        REQUIRE(pa.size() == 1);
+        CHECK(pa[0]->name == "X");
     }
 
     TEST_CASE("Two disconnected components – no cross-component path") {
@@ -115,17 +128,21 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         SUBCASE("Within a component succeeds") {
             CHECK_FALSE(dijk.find_path(*g, "A", "B").empty());
             CHECK_FALSE(bfs.find_path(*g, "A", "B").empty());
+            CHECK_FALSE(astar.find_path(*g, "A", "B").empty());
         }
 
         SUBCASE("Cross-component returns empty") {
             CHECK(dijk.find_path(*g, "A", "D").empty());
             CHECK(bfs.find_path(*g, "A", "D").empty());
+            CHECK(astar.find_path(*g, "A", "D").empty());
             CHECK(dijk.find_path(*g, "C", "B").empty());
             CHECK(bfs.find_path(*g, "C", "B").empty());
+            CHECK(astar.find_path(*g, "C", "B").empty());
         }
     }
 
@@ -144,13 +161,16 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         auto pd = dijk.find_path(*g, "A", "D");
         auto pb = bfs.find_path(*g, "A", "D");
+        auto pa = astar.find_path(*g, "A", "D");
 
         std::vector<std::string> expected = {"A", "B", "C", "D"};
         CHECK(names_of(pd) == expected);
         CHECK(names_of(pb) == expected);
+        CHECK(names_of(pa) == expected);
     }
 
     TEST_CASE("Reverse direction – unreachable despite edge existing") {
@@ -163,12 +183,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         CHECK_FALSE(dijk.find_path(*g, "A", "B").empty());
         CHECK_FALSE(bfs.find_path(*g, "A", "B").empty());
+        CHECK_FALSE(astar.find_path(*g, "A", "B").empty());
 
         CHECK(dijk.find_path(*g, "B", "A").empty());
         CHECK(bfs.find_path(*g, "B", "A").empty());
+        CHECK(astar.find_path(*g, "B", "A").empty());
     }
 
     TEST_CASE("Two equal-weight paths – Dijkstra returns one of them") {
@@ -186,12 +209,20 @@ TEST_SUITE("PathFinding – Edge Cases") {
         g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 5.0);
 
         Dijkstra dijk;
-        auto ids = names_of(dijk.find_path(*g, "A", "D"));
+        auto ids_d = names_of(dijk.find_path(*g, "A", "D"));
 
-        REQUIRE(ids.size() == 3);
-        CHECK(ids.front() == "A");
-        CHECK(ids.back()  == "D");
-        CHECK((ids[1] == "B" || ids[1] == "C"));
+        REQUIRE(ids_d.size() == 3);
+        CHECK(ids_d.front() == "A");
+        CHECK(ids_d.back()  == "D");
+        CHECK((ids_d[1] == "B" || ids_d[1] == "C"));
+
+        AStar astar;
+        auto ids_a = names_of(astar.find_path(*g, "A", "D"));
+
+        REQUIRE(ids_a.size() == 3);
+        CHECK(ids_a.front() == "A");
+        CHECK(ids_a.back()  == "D");
+        CHECK((ids_a[1] == "B" || ids_a[1] == "C"));
     }
 
     TEST_CASE("Star topology – hub to leaves, no leaf-to-leaf path") {
@@ -207,15 +238,18 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         for (const char* leaf : {"L1", "L2", "L3"}) {
             INFO("Hub -> " << leaf);
             CHECK(dijk.find_path(*g, "H", leaf).size() == 2);
             CHECK(bfs.find_path(*g, "H", leaf).size() == 2);
+            CHECK(astar.find_path(*g, "H", leaf).size() == 2);
         }
 
         CHECK(dijk.find_path(*g, "L1", "L2").empty());
         CHECK(bfs.find_path(*g, "L1", "L2").empty());
+        CHECK(astar.find_path(*g, "L1", "L2").empty());
     }
 
     TEST_CASE("Large linear chain – correctness at scale (200 nodes)") {
@@ -234,10 +268,12 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
         std::string last = "N" + std::to_string(N - 1);
 
         CHECK(static_cast<int>(dijk.find_path(*g, "N0", last).size()) == N);
         CHECK(static_cast<int>(bfs.find_path(*g, "N0", last).size()) == N);
+        CHECK(static_cast<int>(astar.find_path(*g, "N0", last).size()) == N);
     }
 
     TEST_CASE("Runtime strategy swap – strategy pattern demonstration") {
@@ -257,10 +293,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
         auto p1 = strategy->find_path(*g, "A", "B");
         CHECK(names_of(p1).size() == 4); // A→C→D→B (cheapest)
 
+        // Swap to A* at runtime
+        strategy.reset(new AStar());
+        auto p2 = strategy->find_path(*g, "A", "B");
+        CHECK(names_of(p2).size() == 4); // A→C→D→B (cheapest, same as Dijkstra)
+
         // Swap to BFS at runtime
         strategy.reset(new BFS());
-        auto p2 = strategy->find_path(*g, "A", "B");
-        CHECK(names_of(p2).size() == 2); // A→B (fewest hops)
+        auto p3 = strategy->find_path(*g, "A", "B");
+        CHECK(names_of(p3).size() == 2); // A→B (fewest hops)
     }
 
 } // TEST_SUITE

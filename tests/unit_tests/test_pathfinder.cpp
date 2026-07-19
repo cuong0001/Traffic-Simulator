@@ -1,5 +1,4 @@
-// General unit tests for Dijkstra & BFS through the PathFinding strategy interface.
-// A* should also be added here whenever it's ready :skull:
+// General unit tests for Dijkstra, BFS & A* through the PathFinding strategy interface.
 // Uses doctest (header-only, v2.4.11). Quick syntax reference:
 //
 //   TEST_SUITE("Group name") {         -- optional grouping
@@ -35,6 +34,7 @@
 #include "routing/PathFinding.hpp"
 #include "routing/Dijkstra.hpp"
 #include "routing/BFS.hpp"
+#include "routing/AStar.hpp"
 
 #include <memory>
 #include <string>
@@ -88,22 +88,27 @@ static TrafficGraph* make_chain_graph(int count) {
 
 TEST_SUITE("PathFinding – Unit Tests") {
 
-    TEST_CASE("Strategy polymorphism – both algorithms work through PathFinding*") {
+    TEST_CASE("Strategy polymorphism – all algorithms work through PathFinding*") {
         std::unique_ptr<TrafficGraph> g(make_diamond_graph());
 
         std::unique_ptr<PathFinding> dijk(new Dijkstra());
         std::unique_ptr<PathFinding> bfs(new BFS());
+        std::unique_ptr<PathFinding> astar(new AStar());
 
         auto path_d = dijk->find_path(*g, "A", "D");
         auto path_b = bfs->find_path(*g, "A", "D");
+        auto path_a = astar->find_path(*g, "A", "D");
 
         REQUIRE_FALSE(path_d.empty());
         REQUIRE_FALSE(path_b.empty());
+        REQUIRE_FALSE(path_a.empty());
 
         CHECK(path_d.front()->name == "A");
         CHECK(path_d.back()->name  == "D");
         CHECK(path_b.front()->name == "A");
         CHECK(path_b.back()->name  == "D");
+        CHECK(path_a.front()->name == "A");
+        CHECK(path_a.back()->name  == "D");
     }
 
     TEST_CASE("Dijkstra picks the lowest-cost path") {
@@ -118,6 +123,19 @@ TEST_SUITE("PathFinding – Unit Tests") {
         CHECK(ids[0] == "A");
         CHECK(ids[1] == "C");
         CHECK(ids[2] == "D");
+    }
+
+    TEST_CASE("A* finds a valid weighted path") {
+        std::unique_ptr<TrafficGraph> g(make_diamond_graph());
+        AStar astar;
+
+        auto path = astar.find_path(*g, "A", "D");
+        auto ids  = names_of(path);
+
+        // A* finds a path; exact route depends on heuristic vs. edge weights
+        REQUIRE(ids.size() == 3);
+        CHECK(ids.front() == "A");
+        CHECK(ids.back()  == "D");
     }
 
     TEST_CASE("BFS finds a valid path") {
@@ -145,6 +163,11 @@ TEST_SUITE("PathFinding – Unit Tests") {
         BFS bfs;
         auto path_b = bfs.find_path(*g, "A", "A");
         CHECK((path_b.size() == 1 || path_b.empty()));
+
+        AStar astar;
+        auto path_a = astar.find_path(*g, "A", "A");
+        REQUIRE(path_a.size() == 1);
+        CHECK(path_a[0]->name == "A");
     }
 
     TEST_CASE("Linear chain – only one possible path") {
@@ -161,6 +184,12 @@ TEST_SUITE("PathFinding – Unit Tests") {
         REQUIRE(pb.size() == 5);
         CHECK(pb.front()->name == "N0");
         CHECK(pb.back()->name  == "N4");
+
+        AStar astar;
+        auto pa = astar.find_path(*g, "N0", "N4");
+        REQUIRE(pa.size() == 5);
+        CHECK(pa.front()->name == "N0");
+        CHECK(pa.back()->name  == "N4");
     }
 
     TEST_CASE("Dijkstra prefers a cheaper longer route over an expensive direct edge") {
@@ -179,6 +208,28 @@ TEST_SUITE("PathFinding – Unit Tests") {
 
         Dijkstra dijk;
         auto ids = names_of(dijk.find_path(*g, "A", "B"));
+
+        REQUIRE(ids.size() == 4); // A→C→D→B
+        CHECK(ids[0] == "A");
+        CHECK(ids[1] == "C");
+        CHECK(ids[2] == "D");
+        CHECK(ids[3] == "B");
+    }
+
+    TEST_CASE("A* prefers a cheaper longer route over an expensive direct edge") {
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 10, 0);
+        g->intersections["C"] = new Intersection("C", 3, 3);
+        g->intersections["D"] = new Intersection("D", 7, 3);
+
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
+        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
+        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+
+        AStar astar;
+        auto ids = names_of(astar.find_path(*g, "A", "B"));
 
         REQUIRE(ids.size() == 4); // A→C→D→B
         CHECK(ids[0] == "A");
@@ -228,6 +279,15 @@ TEST_SUITE("PathFinding – Unit Tests") {
         REQUIRE_FALSE(b1.empty());
         REQUIRE_FALSE(b2.empty());
         CHECK(names_of(b1) == names_of(b3));
+
+        AStar astar;
+        auto a1 = astar.find_path(*g, "A", "D");
+        auto a2 = astar.find_path(*g, "A", "B");
+        auto a3 = astar.find_path(*g, "A", "D");
+
+        REQUIRE_FALSE(a1.empty());
+        REQUIRE_FALSE(a2.empty());
+        CHECK(names_of(a1) == names_of(a3));
     }
 
     TEST_CASE("Direct neighbour – single edge path") {
@@ -244,13 +304,20 @@ TEST_SUITE("PathFinding – Unit Tests") {
         REQUIRE(pb.size() == 2);
         CHECK(pb[0]->name == "A");
         CHECK(pb[1]->name == "B");
+
+        AStar astar;
+        auto pa = astar.find_path(*g, "A", "B");
+        REQUIRE(pa.size() == 2);
+        CHECK(pa[0]->name == "A");
+        CHECK(pa[1]->name == "B");
     }
 
-    TEST_CASE("Both algorithms agree on reachability") {
+    TEST_CASE("All algorithms agree on reachability") {
         std::unique_ptr<TrafficGraph> g(make_diamond_graph());
 
         Dijkstra dijk;
         BFS bfs;
+        AStar astar;
 
         // Reachable pairs
         std::vector<std::pair<std::string,std::string>> reachable = {
@@ -260,6 +327,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
             INFO("Reachable: " << s << " -> " << e);
             CHECK_FALSE(dijk.find_path(*g, s, e).empty());
             CHECK_FALSE(bfs.find_path(*g, s, e).empty());
+            CHECK_FALSE(astar.find_path(*g, s, e).empty());
         }
 
         // Unreachable (reversed direction in a DAG)
@@ -270,6 +338,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
             INFO("Unreachable: " << s << " -> " << e);
             CHECK(dijk.find_path(*g, s, e).empty());
             CHECK(bfs.find_path(*g, s, e).empty());
+            CHECK(astar.find_path(*g, s, e).empty());
         }
     }
 
