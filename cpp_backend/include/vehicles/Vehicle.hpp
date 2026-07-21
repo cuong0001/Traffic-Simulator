@@ -1,68 +1,185 @@
 #pragma once
+
+#include <memory>
 #include <string>
 #include <vector>
 
-class Intersection;
-class Road;
-class Building;
-class TrafficGraph;
+#include "core/Graph.hpp"
+#include "routing/PathfindingStrategy.hpp"
+#include "utils/Observer.hpp"
 
-class Vehicle
-{
+namespace uts {
+
+class StatisticsManager;  // Khai báo trước (Forward declaration)
+
+class Vehicle : public IObserver {
 public:
-    std::string id;
-    Road* current_road; //the road the vehicle is on
-    Intersection* destination; //destination of vehicle
-    double position_on_road; //the distance traveled by the vehicle, measured from the start of the road
-    double current_speed; //current speed of vehicle
-    double max_speed; //max speed of vehicle
+    enum class State { Planning, Moving, WaitingAtLight, Blocked, Arrived };
 
-    double accel;       // Current acceleration of vehicle
-    double max_accel;   // Maximum acceleration of vehicle
-    double max_decel;   // Maximum deceleration of vehicle
+    // --- 1. Khởi tạo & Hủy ----------------------------------------------------
+    Vehicle(std::string id, std::string originId, std::string destinationId,
+            std::shared_ptr<PathfindingStrategy> strategy, CostMode mode);
+    ~Vehicle() override = default;
 
-    std::vector<Road*> route; //List of roads forming the route from the current location to the destination.
-    int route_index; //route[route_index]=current_road;
-    std::vector<std::string> travel_history; //List of road id the vehicle has passed through
-    bool is_reached_destination;
-
-    //Constructor
-    Vehicle(std::string id, double max_speed, double max_accel, double max_decel);
-
-    //Destructor
-    virtual ~Vehicle() = default;
-
-    //Finding route from node A to node B
-    void request_route(TrafficGraph* graph, Intersection* start, Intersection* target);
-
-    //Update movement step-by-step based on delta time (dt).
-    void step_by_step(double dt);
-
-    //Detecting obstacles or traffic jam to decide whether to slow down, stop, or change the route
-    bool react_to_congestion();
-
-    //Refinding route from node C to node B
-    void recompute_route(TrafficGraph* graph, Intersection* target);
-
-    //Check if the vehicle has reached its destination.
-    bool has_reached_destination() const;
-
-    //getter
-    std::string get_id() const; //get name of vehicle
+    // --- 2. Hồ sơ Đa hình (Ghi đè bởi các lớp con) ----------------------------
+    virtual std::string type() const = 0;
+    virtual double speedFactor() const; /// Hệ số nhân tốc độ.
+    virtual double congestionSensitivity() const; /// 1.0 (max) => kẹt xe.
+    virtual bool ignoresTrafficLights() const; /// cho phép vượt đèn đỏ, đèn vàng không
+                                               /// dành cho xe đặc biệt
     
-    Road* get_current_road() const; //get current road of vehicle
-    double get_position_on_road() const; //get the distance traveled by the vehicle, measured from the start of the road
-    const std::vector<std::string>& get_travel_history() const; //get travel history of vehicle
-    const std::vector<Road*>& get_route() const; //get route of vehicle
-    int get_route_index() const; //get current road vehicle's route
+    virtual double lengthMeters() const; /// lấy chiều dài vehicle
+    virtual double widthMeters() const; /// lấy chiều rộng vehicle
+
+    virtual std::vector<int> allowedLanes(int totalLanes) const; /// trả về vị trí làn mà xe được 
+
+    virtual double lanePoliteness() const; // nhường xe khác hay không càng thấp càng chen
+
+    // --- 3. Định danh & Trạng thái cơ bản -------------------------------------
+    const std::string& id() const;
+    const std::string& origin() const; // vị trí bắt đầu
+    const std::string& destination() const; // vị trí kết thúc
+    // trạng thái
+    State state() const;
+    bool arrived() const;
+    bool onRoad() const;
+    void setSpawnTime(double t);
+    double spawnTime() const;
     
-    double get_current_speed() const; //get current speed of vehicle
-    double get_max_speed() const; //get max speed of vehicle
+    // --- 4. Quản lý Lộ trình & Thuật toán -------------------------------------
+    const std::vector<road_id_t>& route() const;
+    std::size_t routeIndex() const;
+    const std::vector<road_id_t>& travelHistory() const;
+    int recalculations() const;
+    double totalDistance() const;
 
-    double get_acceleration() const; //get current acceleration of vehicle
-    double get_max_acceleration() const; //get maximum acceleration of vehicle
-    double get_max_deceleration() const; //get maximum deceleration of vehicle
+    /// Thay đổi điểm đến giữa chừng (tính năng UI "Modify Vehicle").
+    void retarget(const std::string& newDestination);
+    /// Thay đổi thuật toán tìm đường tại thời điểm thực thi (Strategy pattern).
+    void setStrategy(std::shared_ptr<PathfindingStrategy> strategy);
+    const PathfindingStrategy& strategy() const;
+    CostMode costMode() const;
+    /// Kiểm tra xem phần lộ trình CHƯA ĐI ĐẾN có chứa `roadId` hay không.
+    bool remainingRouteContains(road_id_t roadId) const;
 
-    //setter
-    void set_destination(Intersection* dest) { destination = dest; }
+    // --- 5. Trạng thái Động lực học & Vị trí ----------------------------------
+    const std::string& currentRoadId() const;
+    double progressOnRoad() const;
+    double speedMs() const;
+    double accelMs2() const;
+
+    const std::string& currentIntersection() const;
+    node_id_t currentIntersectionIndex() const;
+
+    // --- 6. Chuyển làn & Vị trí ngang (M3 / M4 MOBIL) --------------------------
+    int lane() const;
+    double lateralOffset() const;
+    double targetLateralOffset() const;
+    int prevLane() const;
+    double prevLaneBlockedUntil() const;
+
+    /// Công thức gia tốc IDM (dùng chung cho mô hình bám đuôi và MOBIL).
+    static double idmAccel(double v, double v0, double vLead, double gap);
+    /// Tốc độ tự do mong muốn của xe này trên đoạn đường cho trước (m/s).
+    double desiredSpeedOn(const Road& road) const;
+    /// Trả về true khi xe đang ở trên đường, hết thời gian chờ, và không dạt làn.
+    bool laneChangeReady() const;
+    /// Thực hiện chuyển làn: đặt mục tiêu dạt làn + thời gian chờ.
+    void setLane(int lane, double simTime = 0.0);
+
+    // --- 7. Vòng xoay M5-R (Roundabout Ring Model) -----------------------------
+    static constexpr double kRingRadius = 34.0;
+    bool onRing() const;
+    const std::string& ringNode() const;
+    double ringS() const;
+    double ringLen() const;
+    double ringAngle() const;
+
+    // --- 8. Cơ chế Nhường đường & Xử lý Kẹt xe (M6 / M7) -----------------------
+    double zoneWait() const;
+    void addZoneWait(double s);
+    double stuckTime() const;
+
+    bool isForced(double simTime) const;
+    void grantForcedClearance(double untilSimTime);
+    void rescueTo(Graph& graph, std::size_t newIndex);
+
+    // --- 9. Cập nhật Hành vi & Sự kiện ---------------------------------------
+    /// Tính toán (hoặc tính toán lại) lộ trình dựa trên chiến lược hiện tại.
+    bool requestRoute(Graph& graph, StatisticsManager& stats);
+
+    /**
+     * Cập nhật chuyển động của xe sau dt giây mô phỏng.
+     */
+    void update(double dt, Graph& graph, StatisticsManager& stats, double simTime,
+                const Vehicle* lead = nullptr, double gapMeters = 1e9);
+
+    /// Callback của Observer: phản ứng khi có sự kiện giao thông.
+    void onNotify(const TrafficNotification& notification) override;
+
+    /// Chỉnh sửa bản đồ trực tiếp: chuyển xe sang đoạn đường mới bị tách.
+    void transferToRoad(Graph& graph, road_id_t newRoad, double progressMeters);
+
+protected:
+    void markRouteDirty();
+
+private:
+    // --- Các hàm hỗ trợ nội bộ ------------------------------------------------
+    double retryDelay() const;
+    void enterRoad(Graph& graph, road_id_t roadId);
+    void leaveRoad(Graph& graph);
+    void finishTrip(Graph& graph, StatisticsManager& stats, double simTime);
+
+    // --- 1. Thông tin Định danh & Cấu hình -----------------------------------
+    std::string id_;
+    std::string originId_;
+    std::string destinationId_;
+    std::shared_ptr<PathfindingStrategy> strategy_;
+    CostMode mode_;
+    State state_ = State::Planning;
+
+    // --- 2. Lộ trình & Trạng thái Đồ thị -------------------------------------
+    std::vector<road_id_t> route_;
+    std::size_t routeIndex_ = 0;
+    double progressMeters_ = 0.0;
+    bool onRoad_ = false;
+    std::string currentRoadId_ = "";
+    node_id_t currentIntersectionIndex_ = kInvalidNodeId;
+    std::string currentIntersectionId_ = "";
+
+    // --- 3. Động lực học & Mô hình IDM ---------------------------------------
+    double speedMs_ = 0.0;     ///< Tốc độ hiện tại (m/s)
+    double accel_ = 0.0;       ///< Gia tốc tick trước (m/s^2)
+    double idmFactor_ = 1.0;   ///< Hệ số tốc độ mong muốn riêng (0.8..1.0)
+
+    // --- 4. Trạng thái Nhiều làn đường & Chuyển làn (M3 / M4) ----------------
+    int lane_ = 0;
+    double lateralOffset_ = 0.0;        ///< Khoảng cách ngang (mét)
+    double targetLateralOffset_ = 0.0;  ///< Mục tiêu dạt ngang (mét)
+    double laneChangeCooldown_ = 0.0;   ///< Thời gian chờ chuyển làn tiếp theo (s)
+    int prevLane_ = -1;                ///< Làn vừa rời đi gần nhất
+    double prevLaneBlockedUntil_ = 0;  ///< Mốc thời gian cấm quay lại làn cũ
+
+    // --- 5. Trạng thái Vòng xoay (M5-R) ---------------------------------------
+    bool onRing_ = false;
+    std::string ringNode_;
+    double ringS_ = 0.0;
+    double ringLen_ = 0.0;
+    double ringEntryAngle_ = 0.0;
+
+    // --- 6. Bộ đếm Nhường đường & Giải quyết Kẹt xe (M6 / M7) -----------------
+    bool routeDirty_ = false;
+    double recomputeCooldown_ = 0.0;   ///< Thời gian chờ tính lại đường (s)
+    double blockedRetryTimer_ = 0.0;   ///< Bộ đếm thử lại khi bị Blocked (s)
+    double zoneWait_ = 0.0;            ///< Thời gian tích lũy sự thiếu kiên nhẫn M6 (s)
+    double stuckTime_ = 0.0;           ///< Thời gian đứng yên liên tục M7 (s)
+    double forcedUntil_ = -1.0;        ///< Mốc hết hạn cấp quyền Cấp-2 M7 (s)
+
+    // --- 7. Thống kê & Lịch sử -----------------------------------------------
+    std::vector<road_id_t> history_;
+    int recalculations_ = 0;
+    double distanceTravelled_ = 0.0;
+    double spawnTime_ = 0.0;
 };
+
+}  // namespace uts
