@@ -20,6 +20,7 @@ set(BACKEND_SOURCES
     cpp_backend/src/core/TrafficLight.cpp
     cpp_backend/src/routing/Dijkstra.cpp
     cpp_backend/src/routing/BFS.cpp
+    cpp_backend/src/routing/AStar.cpp
     cpp_backend/src/utils/MapLoader.cpp
 )
 
@@ -28,3 +29,10 @@ target_include_directories(traffic_core PUBLIC cpp_backend/include)
 
 add_executable(traffic_simulator cpp_backend/src/main.cpp)
 target_link_libraries(traffic_simulator PRIVATE traffic_core)
+
+# Tests
+add_executable(test_pathfinder_unit  tests/unit_tests/test_pathfinder.cpp)
+target_link_libraries(test_pathfinder_unit PRIVATE traffic_core)
+
+add_executable(test_pathfinder_edge  tests/edge_cases/test_pathfinder.cpp)
+target_link_libraries(test_pathfinder_edge PRIVATE traffic_core)
