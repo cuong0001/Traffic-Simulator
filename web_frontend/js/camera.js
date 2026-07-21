@@ -5,7 +5,8 @@ export class Camera {
         this.y = window.innerHeight / 2;
         this.zoom = 1;
         this.isDragging = false;
-        
+        this.dirty = true;   // set whenever the view changes; the app redraws on it
+
         this.initEvents();
     }
     
@@ -25,6 +26,7 @@ export class Camera {
             if (this.isDragging) {
                 this.x += e.movementX;
                 this.y += e.movementY;
+                this.dirty = true;
             }
         });
         
@@ -42,7 +44,7 @@ export class Camera {
             this.x = mouseX - (mouseX - this.x) * (newZoom / this.zoom);
             this.y = mouseY - (mouseY - this.y) * (newZoom / this.zoom);
             this.zoom = newZoom;
-            
+            this.dirty = true;
         }, { passive: true });
     }
     
