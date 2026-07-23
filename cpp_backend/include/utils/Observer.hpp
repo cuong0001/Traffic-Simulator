@@ -9,7 +9,6 @@
 
 #include "core/Types.hpp"
 
-namespace uts {
     struct TrafficNotification /// Payload describing a change in the traffic network.
     {
         enum class Kind {
@@ -46,4 +45,3 @@ namespace uts {
         void detach(IObserver* observer); // Removes an observer from the list of observers if it is present.
         void notifyAll(const TrafficNotification& notification); // Notifies all observers in the list of observers about a change in the traffic network by calling their onNotify method with the provided notification.
     };
-}
