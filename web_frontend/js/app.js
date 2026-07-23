@@ -332,11 +332,11 @@ function drawProp(g, p) {
 }
 
 function makeGroundPattern(g) {
-  const spr = Sprites.get("ground-1") || Sprites.get("ground-2") || Sprites.get("ground-3");
+  const spr = Sprites.get("ground");
   if (!spr) return null;
   const p = g.createPattern(spr.img, "repeat");
   if (p && p.setTransform) {
-    const worldSize = 46;                 // world units per tile
+    const worldSize = 110;                // world units one ground tile spans (tune here)
     const k = (worldSize / spr.w) * T.s;
     p.setTransform(new DOMMatrix([k, 0, 0, k, T.tx, T.ty]));
   }

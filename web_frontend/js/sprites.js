@@ -14,9 +14,7 @@ export const Sprites = (() => {
     // Logical name -> file. Buildings/vehicles/lights are pre-registered for
     // later PRs but the static map only draws "ground-*" and "tree-*".
     const FILES = {
-        "ground-1": "grass-1.png",
-        "ground-2": "grass-2.png",
-        "ground-3": "grass-3.png",
+        "ground": "ground.png",
         "tree-1": "tree-1.png",
         "tree-2": "tree-2.png",
         "tree-3": "tree-3.png",
