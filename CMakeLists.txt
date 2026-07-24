@@ -22,10 +22,17 @@ set(BACKEND_SOURCES
     cpp_backend/src/routing/BFS.cpp
     cpp_backend/src/routing/AStar.cpp
     cpp_backend/src/utils/MapLoader.cpp
+    cpp_backend/src/server/WebSocketServer.cpp
 )
+
+find_package(Threads REQUIRED)
 
 add_library(traffic_core STATIC ${BACKEND_SOURCES})
 target_include_directories(traffic_core PUBLIC cpp_backend/include)
+target_link_libraries(traffic_core PUBLIC Threads::Threads)
+if(WIN32)
+    target_link_libraries(traffic_core PUBLIC ws2_32)  # Winsock for the HTTP server
+endif()
 
 add_executable(traffic_simulator cpp_backend/src/main.cpp)
 target_link_libraries(traffic_simulator PRIVATE traffic_core)

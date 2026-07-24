@@ -728,7 +728,7 @@ std::string MapLoader::validate(const TrafficGraph& graph) {
     return "";
 }
 
-void MapLoader::write_map_json(const TrafficGraph& graph, const std::string& path) {
+std::string MapLoader::map_json_string(const TrafficGraph& graph) {
     json out;
     out["intersections"] = json::array();
     out["roads"] = json::array();
@@ -787,11 +787,16 @@ void MapLoader::write_map_json(const TrafficGraph& graph, const std::string& pat
         });
     }
 
+    return out.dump();  // compact: city-scale maps are big, skip pretty-printing
+}
+
+void MapLoader::write_map_json(const TrafficGraph& graph, const std::string& path) {
+    const std::string text = map_json_string(graph);
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) {
         throw MapLoadError("cannot write map JSON: " + path);
     }
-    file << out.dump();  // compact: city-scale maps are big, skip pretty-printing
+    file << text;
     if (!file) {
         throw MapLoadError("failed while writing map JSON: " + path);
     }
