@@ -23,6 +23,9 @@ set(BACKEND_SOURCES
     cpp_backend/src/routing/AStar.cpp
     cpp_backend/src/utils/MapLoader.cpp
     cpp_backend/src/server/WebSocketServer.cpp
+    cpp_backend/src/utils/StatisticsManager.cpp
+    cpp_backend/src/utils/Json.cpp
+    cpp_backend/src/utils/Observer.cpp
 )
 
 find_package(Threads REQUIRED)
@@ -43,3 +46,16 @@ target_link_libraries(test_pathfinder_unit PRIVATE traffic_core)
 
 add_executable(test_pathfinder_edge  tests/edge_cases/test_pathfinder.cpp)
 target_link_libraries(test_pathfinder_edge PRIVATE traffic_core)
+
+#StatisticManager test
+#() Khai báo test unit
+add_executable(test_statistics_unit tests/unit_tests/test_statistics.cpp)
+target_link_libraries(test_statistics_unit PRIVATE traffic_core)
+
+#() Khai báo test edge cases
+add_executable(test_statistics_edge tests/edge_cases/test_statistics.cpp)
+target_link_libraries(test_statistics_edge PRIVATE traffic_core)
+
+#() Khai báo test stress
+add_executable(test_statistics_stress tests/stress_tests/test_statistics.cpp)
+target_link_libraries(test_statistics_stress PRIVATE traffic_core)

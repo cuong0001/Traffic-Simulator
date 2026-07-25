@@ -1,6 +1,8 @@
-#include "../include/utils/Json.hpp"
+#include "utils/Json.hpp"
 
-using namespace uts;
+#include <cmath>
+#include <cstdio>
+
 using namespace std;
 
 string json::escape(const string& in)
@@ -17,7 +19,7 @@ string json::escape(const string& in)
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
                     out += buf;
                 } else {
                     out += c;
@@ -32,7 +34,7 @@ string json::str(const std::string& s)
     return "\"" + escape(s) + "\""; 
 }
 
-string json::num(double v, int precision = 2) 
+string json::num(double v, int precision) 
 {
     if (!std::isfinite(v)) return "null";
     char buf[32];

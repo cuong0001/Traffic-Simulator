@@ -1,5 +1,5 @@
-#include "../include/utils/StatisticsManager.hpp"
-#include "../include/utils/Json.hpp"
+#include "utils/StatisticsManager.hpp"
+#include "utils/Json.hpp"
 #include <sstream>
 
 void StatisticsManager::recordTripCompleted(double travelTimeSeconds,
@@ -72,8 +72,8 @@ std::string StatisticsManager::toJson(bool includeHistory) const
     std::ostringstream os;
     os << "{";
     os << "\"completedTrips\":" << completedTrips_ << ",";
-    os << "\"avgTravelTime\":" << uts::json::num(averageTravelTime()) << ",";
-    os << "\"avgRouteLength\":" << uts::json::num(averageRouteLength()) << ",";
+    os << "\"avgTravelTime\":" << json::num(averageTravelTime(), 2) << ",";
+    os << "\"avgRouteLength\":" << json::num(averageRouteLength(), 2) << ",";
     os << "\"routeComputations\":" << routeComputations_ << ",";
 
     os << "\"tripsByType\":{";
@@ -81,7 +81,7 @@ std::string StatisticsManager::toJson(bool includeHistory) const
     for (const auto& [type, count] : tripsByType_) {
         if (!first) os << ",";
         first = false;
-        os << uts::json::str(type) << ":" << count;
+        os << json::str(type) << ":" << count;
     }
     os << "},";
 
@@ -90,11 +90,11 @@ std::string StatisticsManager::toJson(bool includeHistory) const
     for (const auto& [name, s] : algoStats_) {
         if (!first) os << ",";
         first = false;
-        os << uts::json::str(name) << ":{"
+        os << json::str(name) << ":{"
            << "\"computations\":" << s.computations << ","
            << "\"failures\":" << s.failures << ","
-           << "\"avgMicros\":" << uts::json::num(s.avgMicros()) << ","
-           << "\"avgNodesExplored\":" << uts::json::num(s.avgNodes(), 1) << "}";
+           << "\"avgMicros\":" << json::num(s.avgMicros(), 2) << ","
+           << "\"avgNodesExplored\":" << json::num(s.avgNodes(), 1) << "}";
     }
     os << "},";
 
@@ -104,10 +104,10 @@ std::string StatisticsManager::toJson(bool includeHistory) const
         for (const Sample& s : history_) {
             if (!first) os << ",";
             first = false;
-            os << "{\"t\":" << uts::json::num(s.simTime, 1)
-               << ",\"congestion\":" << uts::json::num(s.avgCongestion, 3)
+            os << "{\"t\":" << json::num(s.simTime, 1)
+               << ",\"congestion\":" << json::num(s.avgCongestion, 3)
                << ",\"vehicles\":" << s.activeVehicles
-               << ",\"avgTravel\":" << uts::json::num(s.avgTravelTime, 1) << "}";
+               << ",\"avgTravel\":" << json::num(s.avgTravelTime, 1) << "}";
         }
     }
     os << "]}";

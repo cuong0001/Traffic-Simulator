@@ -16,7 +16,7 @@ public:
 
     int completedTrips() const; //Total number of completed trips.
     double averageTravelTime() const; //Average travel time of completed trips in seconds.
-    double averageRouteLength() const; //Total distance traveled by all vehicles in meters.
+    double averageRouteLength() const; // Average route length per completed trip, in meters.
     double totalTravelTime() const; //Total travel time of all completed trips in seconds.
 
     // Algorithm metrics
