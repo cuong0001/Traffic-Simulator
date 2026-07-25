@@ -1,39 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Static Map Viewer</title>
-    <link rel="stylesheet" href="../css/side_bar.css">
-    <link rel="stylesheet" href="../css/layout.css">
-    <link rel="stylesheet" href="../css/canvas.css">
-    <link rel="stylesheet" href="../css/components.css">
-    <link rel="stylesheet" href="../css/event_log.css">
-    <link rel="stylesheet" href="../css/menu.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Urban Traffic Simulator — Map</title>
+  <link rel="stylesheet" href="../css/map.css" />
 </head>
 <body>
-    <div id="menu-container"></div> <script>
-        // Hàm nạp file menu vào thẻ div trên
-        fetch('menu/menu.html')
-            .then(response => response.text())
-            .then(data => {
-                document.getElementById('menu-container').innerHTML = data;
-            });
-    </script>  
-    
-    <div id="event-log"></div> <script>
-        fetch('event_log/event_log.html')
-            .then(response => response.text())
-            .then(data => {
-                document.getElementById('event-log').innerHTML = data;
-            });
-    </script>  
-    
-    <div class="viewport">
-        <canvas id="mainCanvas"></canvas>
-    </div>
-    
-    <script type="module" src="../js/app.js"></script>
+  <canvas id="map"></canvas>
+
+  <!-- Top-left title + live map stats -->
+  <header id="hud">
+    <div class="hud-title">Urban Traffic Simulator</div>
+    <div id="hud-stats" class="hud-stats">loading map…</div>
+  </header>
+
+  <!-- Bottom-left controls hint -->
+  <div id="hint">drag to pan · scroll to zoom · <kbd>F</kbd> fit</div>
+
+  <!-- Right sidebar: simulation controls arrive in later PRs. Hidden for now
+       so the chrome is in place without looking broken. -->
+  <aside id="sidebar" class="hidden" aria-hidden="true">
+    <!-- TODO(sim-PR): spawn form, event buttons, pause/speed, stats panel, chart -->
+  </aside>
+
+  <!-- Perf meter (toggle with the 'P' key) -->
+  <div id="fpsmeter" class="hidden"></div>
+
+  <!-- Transient messages -->
+  <div id="toast" class="hidden"></div>
+
+  <!-- Loading / error overlay -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="loading-text">Loading map…</div>
+  </div>
+
+  <script type="module" src="../js/app.js"></script>
 </body>
 </html>

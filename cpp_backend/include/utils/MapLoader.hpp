@@ -49,4 +49,7 @@ public:
     // Two-way roads are emitted once (the "_r" reverse twin is skipped).
     // Throws MapLoadError if the file cannot be written.
     static void write_map_json(const TrafficGraph& graph, const std::string& path);
+
+    // Same serialization, returned as a compact JSON string (served by GET /api/map).
+    static std::string map_json_string(const TrafficGraph& graph);
 };
