@@ -1,7 +1,5 @@
 #include "utils/Observer.hpp"
 
-using namespace uts;
-
 void Subject::attach(IObserver* observer)
 {
     if (observer == nullptr) return;

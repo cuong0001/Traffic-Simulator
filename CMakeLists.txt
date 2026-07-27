@@ -26,6 +26,7 @@ set(BACKEND_SOURCES
     cpp_backend/src/utils/StatisticsManager.cpp
     cpp_backend/src/utils/Json.cpp
     cpp_backend/src/utils/Observer.cpp
+    cpp_backend/src/events/TrafficEvent.cpp
 )
 
 find_package(Threads REQUIRED)

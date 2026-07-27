@@ -76,3 +76,21 @@ std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
 
     return {lead, min_gap};
 }
+
+void Road::update_travel_cost() {
+    // If road is closed, set travel cost to infinity which prevent pathfinding algorithms from routing onto this road
+    if (is_closed) {
+        travel_cost = 99999999.0;
+        return;
+    }
+
+    // Calculating the composite traffic congestion level: Congestion due to current traffic volume + Congestion due to events.
+    // capacity_scale < 1.0 (accident) increase 
+    double actual_capacity = lanes * capacity * capacity_scale;
+    double base_congestion = (vehicles.size() / actual_capacity);
+    
+    congestion_level = base_congestion + event_congestion;
+
+    // Recomputed travel cost.
+    travel_cost = base_weight * (1.0 + congestion_level);
+}

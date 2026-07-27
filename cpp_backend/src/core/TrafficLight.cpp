@@ -35,3 +35,8 @@ void TrafficLight::update(double dt) {
         remaining_time += phase_dur[state];
     }
 }
+
+void TrafficLight::set_green_duration (double time)
+{
+    phase_dur[2] = time;
+}
