@@ -14,9 +14,6 @@ public:
     // Empty when the building is only anchored to a node.
     std::vector<std::pair<double, double>> footprint;
 
-    // Building anchored to a node (old CSV format)
-    Building(std::string name, std::string node_id, std::string type);
-
     // Building with a footprint loaded from the map file
     Building(std::string name, std::string type, int levels,
              std::vector<std::pair<double, double>> footprint);
