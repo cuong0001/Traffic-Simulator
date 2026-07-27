@@ -70,9 +70,8 @@ void AccidentEvent::apply(TrafficGraph& graph)
     Road* r = graph.get_edge(targetId_);
     if (r) 
     {
-        previousScale_ = r->capacity_scale;
-        r->capacity_scale = previousScale_ * 0.3; // The accident reduced capacity by 70%.
-        r->event_congestion += 0.7;               // Add traffic jams
+        r->capacity_scale *= 0.3; // The accident reduced capacity by 70%.
+        r->event_congestion += 0.7; // Add traffic jams
         r->update_travel_cost();
     }
 }
@@ -81,7 +80,8 @@ void AccidentEvent::expire(TrafficGraph& graph)
 {
     Road* r = graph.get_edge(targetId_);
     if (r) {
-        r->capacity_scale = previousScale_;
+        r->capacity_scale /= 0.3; // Restoring road capacity following the accident
+        if (r->capacity_scale > 1.0) r->capacity_scale = 1.0;
         r->event_congestion -= 0.7;
         r->update_travel_cost();
     }

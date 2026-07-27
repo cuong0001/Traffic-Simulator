@@ -78,9 +78,6 @@ public:
     void expire(TrafficGraph& graph) override;
     TrafficNotification startNotification() const override;
     TrafficNotification endNotification() const override;
-
-private:
-    double previousScale_ = 1.0;
 };
 
 /// Full road closure: the edge becomes unusable.
