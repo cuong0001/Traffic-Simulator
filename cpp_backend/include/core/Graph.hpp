@@ -19,13 +19,10 @@ public:
 
     // Construct an empty graph, then populate it with MapLoader
     TrafficGraph() = default;
-    // Build the graph from CSV file paths
-    TrafficGraph(const std::string& node_path, const std::string& road_path, const std::string& building_path);
     // Destroy the graph, freeing all Intersection, Road, and Building memory
     ~TrafficGraph();
 
-    // Data loading and graph construction
-    void load_from_csv(const std::string& node_path, const std::string& road_path, const std::string& building_path);
+    // Graph construction
     void create_directional_road(const std::string& edge_id, Intersection* source_node, Intersection* target_node, int lanes, double speed_limit, bool is_one_way);
 
     // Lookup
