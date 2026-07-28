@@ -12,7 +12,7 @@ public:
 };
 
 /**
- * Load a map from a SINGLE GeoJSON file instead of the three CSVs.
+ * Load a map from a SINGLE GeoJSON file.
  *
  * Format: a GeoJSON FeatureCollection where every feature has a "uts:kind"
  * property saying what it is (coordinates are already in world meters):

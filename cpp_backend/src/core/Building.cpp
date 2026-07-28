@@ -1,10 +1,6 @@
 #include "core/Building.hpp"
 #include <utility>
 
-Building::Building(std::string name, std::string node_id, std::string type)
-    : name(std::move(name)), node_id(std::move(node_id)), type(std::move(type)),
-      levels(1) {}
-
 Building::Building(std::string name, std::string type, int levels,
                    std::vector<std::pair<double, double>> footprint)
     : name(std::move(name)), type(std::move(type)), levels(levels),

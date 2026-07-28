@@ -9,7 +9,8 @@
 
 #include "core/Types.hpp"
 
-namespace uts {
+namespace uts
+{
     struct TrafficNotification /// Payload describing a change in the traffic network.
     {
         enum class Kind {
