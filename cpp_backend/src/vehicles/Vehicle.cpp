@@ -1,4 +1,4 @@
-#include "vehicle.hpp"
+#include "vehicles/Vehicle.hpp"
 #include "core/Road.hpp"
 #include "core/Intersection.hpp"
 #include "core/Graph.hpp"
@@ -23,10 +23,10 @@ Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_
       current_speed(0.0), max_speed(max_speed), accel(0.0), max_accel(max_accel),
       max_decel(max_decel), route_index(-1), is_reached_destination(false) {
     
-    // Khởi tạo yếu tố idmFactor_ ngẫu nhiên dựa trên mã ID để mỗi xe có cá tính riêng
+    // Khởi tạo yếu tố idm_factor ngẫu nhiên dựa trên mã ID để mỗi xe có cá tính riêng
     unsigned h = 0;
     for (char c : id) h = h * 31u + static_cast<unsigned>(c);
-    idmFactor_ = 0.8 + 0.2 * ((h % 100u) / 99.0);
+    idm_factor = 0.8 + 0.2 * ((h % 100u) / 99.0);
 }
 
 // Tính toán gia tốc IDM
@@ -39,9 +39,9 @@ double Vehicle::idmAccel(double v, double v0, double vLead, double gap) {
     return 2.5 * (1.0 - std::pow(v / v0, 4) - std::pow(sStar / gap, 2));
 }
 
-double Vehicle::desiredSpeedOn(const Road& road) const {
+double Vehicle::desired_speed_on(const Road& road) const {
     double road_limit = road.speed_limit;
-    return std::min(max_speed, road_limit) * speedFactor() * idmFactor_;
+    return std::min(max_speed, road_limit) * speedFactor() * idm_factor;
 }
 
 void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersection* target) {
@@ -55,7 +55,7 @@ void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersecti
 
     route.clear();
 
-    for (size_t i = 0; i < node_path.size() - 1; ++i) {
+    for (size_t i = 0; i + 1 < node_path.size(); ++i) {
         Intersection* u = node_path[i];
         Intersection* v = node_path[i + 1];
         Road* found_road = nullptr;
@@ -92,20 +92,26 @@ void Vehicle::step_by_step(double dt) {
     current_speed = std::max(0.0, current_speed + accel * dt);
     double step = current_speed * dt;
 
-    // Di chuyển vị trí trên đường
+    // Never move through the vehicle in front. IDM is a comfort model: it does
+    // not guarantee this when the leader brakes hard or dt is large.
+    const double max_step = std::max(0.0, last_gap - kContactMargin);
+    if (step > max_step) {
+        step = max_step;
+        current_speed = dt > 1e-9 ? step / dt : 0.0;
+    }
     position_on_road += step;
 
     // Cập nhật lệch ngang (lateral drift) mượt mà khi đổi làn
     if (current_speed > 0.5) {
-        double delta = targetLateralOffset_ - lateralOffset_;
+        double delta = target_lateral_offset - lateral_offset;
         double maxStep = kLateralSpeed * dt;
-        if (std::abs(delta) <= maxStep) lateralOffset_ = targetLateralOffset_;
-        else lateralOffset_ += (delta > 0 ? maxStep : -maxStep);
+        if (std::abs(delta) <= maxStep) lateral_offset = target_lateral_offset;
+        else lateral_offset += (delta > 0 ? maxStep : -maxStep);
     }
 
     // Xử lý kẹt xe (stuck tracking)
-    if (current_speed < 0.3) stuckTime_ += dt;
-    else if (current_speed > 1.0) stuckTime_ = 0.0;
+    if (current_speed < 0.3) stuck_time += dt;
+    else if (current_speed > 1.0) stuck_time = 0.0;
 
     // Chuyển sang đường tiếp theo nếu đi hết đoạn đường hiện tại
     if (position_on_road >= current_road->length) {
@@ -135,11 +141,12 @@ bool Vehicle::react_to_congestion() {
     if (!current_road) return false;
 
     bool is_congested = false;
-    double v0 = desiredSpeedOn(*current_road);
+    double v0 = desired_speed_on(*current_road);
 
     // 1. Xác định xe phía trước & khoảng cách
     std::pair<Vehicle*, double> lead = current_road->get_lead_vehicle(this);
-    double gap = lead.first ? lead.second : 1e9;
+    // get_lead_vehicle() measures position to position; IDM needs bumper to bumper.
+    double gap = lead.first ? lead.second - lead.first->lengthMeters() : 1e9;
     double vLead = lead.first ? lead.first->get_current_speed() : 0.0;
 
     bool redAhead = false;
@@ -175,9 +182,9 @@ bool Vehicle::react_to_congestion() {
 
     // 3. Tính gia tốc IDM
     accel = idmAccel(current_speed, v0, vLead, gap);
-
-    // Giới hạn gia tốc trong khoảng [-max_decel, max_accel]
     accel = std::clamp(accel, -max_decel, max_accel);
+
+    last_gap = gap;   // step_by_step() uses this so we never move through the leader
 
     if (gap < 15.0 || redAhead) {
         is_congested = true;
@@ -198,7 +205,7 @@ void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
     std::vector<Intersection*> node_path = router.find_path(*graph, start_node_id, target->name);
     std::vector<Road*> new_route;
 
-    for (size_t i = 0; i < node_path.size() - 1; ++i) {
+    for (size_t i = 0; i + 1 < node_path.size(); ++i) {
         Intersection* u = node_path[i];
         Intersection* v = node_path[i + 1];
         Road* found_road = nullptr;
