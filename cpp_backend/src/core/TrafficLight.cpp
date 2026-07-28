@@ -39,4 +39,8 @@ void TrafficLight::update(double dt) {
 void TrafficLight::set_green_duration (double time)
 {
     phase_dur[2] = time;
+    //The light failure event takes effect immediately, without waiting for the current green light cycle to finish.
+    if (state == 2 && remaining_time > time) {
+        remaining_time = time;
+    }
 }

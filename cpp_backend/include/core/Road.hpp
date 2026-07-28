@@ -34,6 +34,8 @@ public:
     bool is_closed = false;         // use when that event cause close road
     double event_congestion = 0.0;  // congestion level caused by traffic event
     double capacity_scale = 1.0;    // Capacity ratio following a traffic event
+    static constexpr double kClosedRoadCost = 1e8;
+
     
     //A length <= 0 means "measure it from the endpoints".
     Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,

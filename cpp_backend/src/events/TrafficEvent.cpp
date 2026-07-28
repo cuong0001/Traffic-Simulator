@@ -1,9 +1,9 @@
 #include "events/TrafficEvent.hpp"
 
 #include <utility>
-#include "core\Road.hpp"
-#include "core\Intersection.hpp"
-#include "core\TrafficLight.hpp"
+#include "core/Road.hpp"
+#include "core/Intersection.hpp"
+#include "core/TrafficLight.hpp"
 
 using Kind = TrafficNotification::Kind;
 
@@ -157,11 +157,9 @@ void TrafficLightEvent::apply(TrafficGraph& graph)
         // Check if this intersection has traffic lights.
         if (node && node->light_system) 
         {
-            // Retain the previous green light duration.
-            previousGreen_ = node->light_system->get_green_duration();
-            
-            // Forcing the green light to just 5 seconds (simulating a light malfunction)
-            node->light_system->set_green_duration(5.0); 
+            // Malfunction: the green phase shrinks, so the junction spends most of its cycle red.
+            TrafficLight* light = node->light_system;
+            light->set_green_duration(light->get_green_duration() * kBrokenGreenScale);
         }
     }
 }
@@ -172,11 +170,10 @@ void TrafficLightEvent::expire(TrafficGraph& graph)
     if (it != graph.intersections.end()) 
     {
         Intersection* node = it->second;
-        
         if (node && node->light_system) 
         {
-            // Restore the green light duration to its original setting.
-            node->light_system->set_green_duration(previousGreen_); 
+            TrafficLight* light = node->light_system;
+            light->set_green_duration(light->get_green_duration() / kBrokenGreenScale);
         }
     }
 }

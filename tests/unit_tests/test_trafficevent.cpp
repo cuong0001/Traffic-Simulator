@@ -36,7 +36,7 @@ TEST_CASE("RoadClosureEvent closes and reopens a road") {
     // 3. End of the road closure event
     closure.expire(graph);
 
-    // Kiểm tra: Đường mở lại và chi phí khôi phục như cũ
+    // Check: Road reopening and restoration travel costs
     CHECK(road->is_closed == false);
     CHECK(road->travel_cost == doctest::Approx(original_cost));
 }
@@ -106,4 +106,41 @@ TEST_CASE("CongestionEvent increases and restores event_congestion") {
     congestion.expire(graph);
     CHECK(road->event_congestion == doctest::Approx(0.0));
     CHECK(road->travel_cost == doctest::Approx(base_cost));
+}
+
+// =========================================================================
+// TEST 4: Check for overlapping traffic light events. (TrafficLightEvent)
+// =========================================================================
+TEST_CASE("TrafficLightEvent restores green duration with overlapping events") {
+    TrafficGraph graph;
+    
+    // 1. Initialize the NodeL intersection
+    auto* node = new Intersection("NodeL", 0.0, 0.0);
+    
+    // The initial green light setting is 30.0 seconds. (vàng 3.0s, đỏ 2.0s)
+    node->light_system = new TrafficLight(30.0, 3.0, 2.0); 
+    graph.intersections["NodeL"] = node;
+
+    // Initial state
+    CHECK(node->light_system->get_green_duration() == doctest::Approx(30.0));
+
+    // Initialize two traffic light failure events at the same intersection.
+    TrafficLightEvent light1("evt_L1", "NodeL", 20.0);
+    TrafficLightEvent light2("evt_L2", "NodeL", 30.0);
+
+    // 3. Activate event 1: Green light decreases to 20% (30.0 * 0.2 = 6.0)
+    light1.apply(graph);
+    CHECK(node->light_system->get_green_duration() == doctest::Approx(6.0));
+
+    // 4. Triggering the overlapping Event 2: The green light continues to decrease. (6.0 * 0.2 = 1.2)
+    light2.apply(graph);
+    CHECK(node->light_system->get_green_duration() == doctest::Approx(1.2));
+
+    // 5. End Event 1: Restoration of the Event 1 segment. (1.2 / 0.2 = 6.0)
+    light1.expire(graph);
+    CHECK(node->light_system->get_green_duration() == doctest::Approx(6.0));
+
+    // 6. End Event 2: Complete restoration to the original state. (6.0 / 0.2 = 30.0)
+    light2.expire(graph);
+    CHECK(node->light_system->get_green_duration() == doctest::Approx(30.0));
 }

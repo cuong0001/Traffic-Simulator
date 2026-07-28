@@ -105,7 +105,7 @@ public:
     TrafficNotification endNotification() const override;
 
 private:
-    double previousGreen_ = 25.0;  ///< green DURATION (s) to restore on expiry
+    static constexpr double kBrokenGreenScale = 0.2;
 };
 
 /// Simple factory for events (used by the controller and the HTTP API).

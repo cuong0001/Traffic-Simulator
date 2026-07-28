@@ -80,7 +80,6 @@ std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
 void Road::update_travel_cost() {
     // If road is closed, set travel cost to infinity which prevent pathfinding algorithms from routing onto this road
     if (is_closed) {
-        static constexpr double kClosedRoadCost = 1e8;
         travel_cost = kClosedRoadCost;
         return;
     }
