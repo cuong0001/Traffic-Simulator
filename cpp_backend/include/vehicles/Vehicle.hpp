@@ -1,9 +1,6 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <memory>
-#include <algorithm>
-#include <cmath>
 
 class Intersection;
 class Road;
@@ -30,11 +27,12 @@ public:
     bool is_reached_destination;
 
     // --- CÁC THUỘC TÍNH BỔ SUNG PHỤC VỤ MÔ HÌNH IDM & CHUYỂN LÀN ---
-    double idmFactor_{1.0};           // Hệ số cá thể hóa tốc độ (0.8 .. 1.0)
-    double lateralOffset_{0.0};       // Tọa độ lệch ngang hiện tại
-    double targetLateralOffset_{0.0}; // Tọa độ lệch ngang mục tiêu
+    double idm_factor{1.0};           // Hệ số cá thể hóa tốc độ (0.8 .. 1.0)
+    double lateral_offset{0.0};       // Tọa độ lệch ngang hiện tại
+    double target_lateral_offset{0.0}; // Tọa độ lệch ngang mục tiêu
     int lane_{0};                     // Làn đường hiện tại
-    double stuckTime_{0.0};           // Thời gian bị kẹt liên tục
+    double stuck_time{0.0};           // Thời gian bị kẹt liên tục
+    double last_gap{1e9};
 
     // Constructor
     Vehicle(std::string id, double max_speed, double max_accel, double max_decel);
@@ -44,7 +42,7 @@ public:
 
     // --- HÀM TÍNH TOÁN IDM CỐT LÕI (Thêm mới) ---
     static double idmAccel(double v, double v0, double vLead, double gap);
-    double desiredSpeedOn(const Road& road) const;
+    double desired_speed_on(const Road& road) const;
 
     // --- VIRTUAL METHODS PHỤC VỤ ĐA HÌNH ---
     virtual std::string type() const { return "car"; }
@@ -92,7 +90,7 @@ public:
     double get_max_deceleration() const; 
 
     int get_lane() const { return lane_; }
-    double get_lateral_offset() const { return lateralOffset_; }
+    double get_lateral_offset() const { return lateral_offset; }
 
     // Setter
     void set_destination(Intersection* dest) { destination = dest; }
