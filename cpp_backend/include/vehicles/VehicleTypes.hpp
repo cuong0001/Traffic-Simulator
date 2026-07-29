@@ -25,14 +25,14 @@ class Bus : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "bus"; }
-    double speedFactor() const override { return 0.8; }
-    double lengthMeters() const override { return 6.5; }
+    double speed_factor() const override { return 0.8; }
+    double length_meters() const override { return 6.5; }
 
     /// On 3+ lane roads buses keep out of the innermost (fast) lane.
-    std::vector<int> allowedLanes(int totalLanes) const override {
-        if (totalLanes < 3) return Vehicle::allowedLanes(totalLanes);
+    std::vector<int> allowed_lanes(int total_lanes) const override {
+        if (total_lanes < 3) return Vehicle::allowed_lanes(total_lanes);
         std::vector<int> lanes;
-        for (int i = 1; i < totalLanes; ++i) lanes.push_back(i);
+        for (int i = 1; i < total_lanes; ++i) lanes.push_back(i);
         return lanes;
     }
 };
@@ -42,13 +42,13 @@ class EmergencyVehicle : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "emergency"; }
-    double speedFactor() const override { return 1.35; }
-    double congestionSensitivity() const override { return 0.25; }
-    bool ignoresTrafficLights() const override { return true; }
-    double lengthMeters() const override { return 5.0; }
+    double speed_factor() const override { return 1.35; }
+    double congestion_sensitivity() const override { return 0.25; }
+    bool ignores_lights() const override { return true; }
+    double length_meters() const override { return 5.0; }
 
     /// MOBIL politeness 0: sirens don't negotiate.
-    double lanePoliteness() const override { return 0.0; }
+    double lane_politeness() const override { return 0.0; }
 };
 
 /// Motorbike: nimble in congestion, slightly slower top speed.
@@ -56,14 +56,14 @@ class Motorbike : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "motorbike"; }
-    double speedFactor() const override { return 0.95; }
-    double congestionSensitivity() const override { return 0.6; }
-    double lengthMeters() const override { return 2.0; }
-    double widthMeters() const override { return 0.8; }
+    double speed_factor() const override { return 0.95; }
+    double congestion_sensitivity() const override { return 0.6; }
+    double length_meters() const override { return 2.0; }
+    double width_meters() const override { return 0.8; }
 
     /// On 3+ lane roads bikes stay in the two innermost lanes.
-    std::vector<int> allowedLanes(int totalLanes) const override {
-        if (totalLanes < 3) return Vehicle::allowedLanes(totalLanes);
+    std::vector<int> allowed_lanes(int total_lanes) const override {
+        if (total_lanes < 3) return Vehicle::allowed_lanes(total_lanes);
         return {0, 1};
     }
 };
@@ -80,5 +80,5 @@ public:
                                            double max_decel = 4.5);
 
     /// Weighted random type: mostly cars, some buses/bikes, rare emergencies.
-    static std::string randomType(std::mt19937& rng);
+    static std::string random_type(std::mt19937& rng);
 };

@@ -9,39 +9,44 @@
 #include <cmath>
 
 namespace {
-// Các hằng số IDM (Intelligent Driver Model)
-constexpr double kIdmT = 1.5;         // Tới hạn thời gian an toàn mong muốn (s)
-constexpr double kIdmS0 = 2.0;        // Khoảng cách dừng xe tối thiểu (m)
-constexpr double kContactMargin = 0.25; // Lề an toàn tránh đè va chạm (m)
-constexpr double kLightLookahead = 80.0; // Tầm nhìn kiểm tra đèn (m)
-constexpr double kAmberComfortDecel = 3.0; // Gia tốc phanh êm ái khi gặp đèn vàng (m/s^2)
-constexpr double kLateralSpeed = 2.0;   // Tốc độ trôi ngang khi chuyển làn (m/s)
-}
+// Intelligent Driver Model constants (Treiber et al.).
+constexpr double kIdmT = 1.5;              // desired safe time headway (s)
+constexpr double kIdmS0 = 2.0;             // minimum standstill gap (m)
+constexpr double kIdmA = 2.5;              // comfortable acceleration (m/s^2)
+constexpr double kIdmB = 3.0;              // comfortable deceleration (m/s^2)
+constexpr double kContactMargin = 0.25;    // m kept between bumpers
+constexpr double kLightLookahead = 80.0;   // m before a stop line we start looking
+constexpr double kAmberComfortDecel = 3.0; // amber dilemma-zone threshold (m/s^2)
+constexpr double kLateralSpeed = 2.0;      // m/s of sideways drift on a lane change
+}  // namespace
 
 Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_decel)
     : id(id), current_road(nullptr), destination(nullptr), position_on_road(0.0),
       current_speed(0.0), max_speed(max_speed), accel(0.0), max_accel(max_accel),
       max_decel(max_decel), route_index(-1), is_reached_destination(false) {
     
-    // Khởi tạo yếu tố idm_factor ngẫu nhiên dựa trên mã ID để mỗi xe có cá tính riêng
+    // Derive the speed personality from a hash of the id, so identical cars
+    // do not drive identically and a run stays reproducible.
     unsigned h = 0;
     for (char c : id) h = h * 31u + static_cast<unsigned>(c);
     idm_factor = 0.8 + 0.2 * ((h % 100u) / 99.0);
 }
 
-// Tính toán gia tốc IDM
-double Vehicle::idmAccel(double v, double v0, double vLead, double gap) {
+// Intelligent Driver Model acceleration.
+//   v     current speed (m/s)      v0   desired free-flow speed (m/s)
+//   v_lead speed of the car ahead  gap  bumper-to-bumper distance (m)
+double Vehicle::idm_accel(double v, double v0, double v_lead, double gap) {
     v0 = std::max(0.5, v0);
     gap = std::max(0.1, gap);
-    const double deltaV = v - vLead;
-    const double kIdmSqrtAB = 2.0 * std::sqrt(2.5 * 3.0); // sqrt(a * b)
-    const double sStar = kIdmS0 + std::max(0.0, v * kIdmT + (v * deltaV) / kIdmSqrtAB);
-    return 2.5 * (1.0 - std::pow(v / v0, 4) - std::pow(sStar / gap, 2));
+    const double delta_v = v - v_lead;
+    const double sqrt_ab = 2.0 * std::sqrt(kIdmA * kIdmB);
+    const double s_star = kIdmS0 + std::max(0.0, v * kIdmT + (v * delta_v) / sqrt_ab);
+    return kIdmA * (1.0 - std::pow(v / v0, 4) - std::pow(s_star / gap, 2));
 }
 
 double Vehicle::desired_speed_on(const Road& road) const {
     double road_limit = road.speed_limit;
-    return std::min(max_speed, road_limit) * speedFactor() * idm_factor;
+    return std::min(max_speed, road_limit) * speed_factor() * idm_factor;
 }
 
 void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersection* target) {
@@ -88,7 +93,7 @@ void Vehicle::step_by_step(double dt) {
     // React to congestion & IDM car-following calculation
     react_to_congestion();
 
-    // Cập nhật tốc độ dựa trên gia tốc IDM
+    // Apply the IDM acceleration.
     current_speed = std::max(0.0, current_speed + accel * dt);
     double step = current_speed * dt;
 
@@ -101,19 +106,19 @@ void Vehicle::step_by_step(double dt) {
     }
     position_on_road += step;
 
-    // Cập nhật lệch ngang (lateral drift) mượt mà khi đổi làn
+    // Ease the sideways drift of a lane change.
     if (current_speed > 0.5) {
         double delta = target_lateral_offset - lateral_offset;
-        double maxStep = kLateralSpeed * dt;
-        if (std::abs(delta) <= maxStep) lateral_offset = target_lateral_offset;
-        else lateral_offset += (delta > 0 ? maxStep : -maxStep);
+        double max_step = kLateralSpeed * dt;
+        if (std::abs(delta) <= max_step) lateral_offset = target_lateral_offset;
+        else lateral_offset += (delta > 0 ? max_step : -max_step);
     }
 
-    // Xử lý kẹt xe (stuck tracking)
+    // Stuck tracking: how long have we been standing still?
     if (current_speed < 0.3) stuck_time += dt;
     else if (current_speed > 1.0) stuck_time = 0.0;
 
-    // Chuyển sang đường tiếp theo nếu đi hết đoạn đường hiện tại
+    // Hand over to the next road once this one runs out.
     if (position_on_road >= current_road->length) {
         double overshoot = position_on_road - current_road->length;
         
@@ -127,7 +132,7 @@ void Vehicle::step_by_step(double dt) {
             position_on_road = std::min(overshoot, current_road->length);
             current_road->add_vehicle(this);
         } else {
-            // Đã đến đích
+            // Arrived at the destination.
             is_reached_destination = true;
             current_road = nullptr;
             position_on_road = 0.0;
@@ -143,36 +148,37 @@ bool Vehicle::react_to_congestion() {
     bool is_congested = false;
     double v0 = desired_speed_on(*current_road);
 
-    // 1. Xác định xe phía trước & khoảng cách
+    // 1. The vehicle ahead and the distance to it.
+    // TODO: this is lane-blind; the lane-aware search lives in TrafficSimulator.
     std::pair<Vehicle*, double> lead = current_road->get_lead_vehicle(this);
     // get_lead_vehicle() measures position to position; IDM needs bumper to bumper.
-    double gap = lead.first ? lead.second - lead.first->lengthMeters() : 1e9;
-    double vLead = lead.first ? lead.first->get_current_speed() : 0.0;
+    double gap = lead.first ? lead.second - lead.first->length_meters() : 1e9;
+    double v_lead = lead.first ? lead.first->get_current_speed() : 0.0;
 
-    bool redAhead = false;
+    bool red_ahead = false;
 
-    // 2. Xử lý Đèn Giao Thông (kèm logic Đèn Vàng / Vượt Đèn Đỏ)
-    if (!ignoresTrafficLights()) {
+    // 2. Traffic light ahead, including the amber dilemma zone.
+    if (!ignores_lights()) {
         Intersection* next_node = current_road->target;
         if (next_node && next_node->light_system) {
-            double distToStop = current_road->length - position_on_road;
-            if (distToStop < kLightLookahead) {
+            double dist_to_stop = current_road->length - position_on_road;
+            if (dist_to_stop < kLightLookahead) {
                 unsigned int state = next_node->light_system->get_state(); // 0: Red, 1: Yellow, 2: Green
-                bool mustStop = (state == 0);
+                bool must_stop = (state == 0);
 
-                // Nếu là đèn vàng (state == 1): kiểm tra vùng lưỡng hờ (dilemma zone)
+                // Amber: stop only if we can still brake comfortably.
                 if (state == 1) {
-                    double d = std::max(0.5, distToStop);
-                    mustStop = (current_speed * current_speed) / (2.0 * d) <= kAmberComfortDecel;
+                    double d = std::max(0.5, dist_to_stop);
+                    must_stop = (current_speed * current_speed) / (2.0 * d) <= kAmberComfortDecel;
                 }
 
-                if (mustStop) {
-                    double stopGap = distToStop - lengthMeters() * 0.5;
-                    if (stopGap > -1.0) { // Chưa vượt quá vạch dừng
-                        redAhead = true;
-                        if (stopGap < gap) {
-                            gap = std::max(0.05, stopGap);
-                            vLead = 0.0;
+                if (must_stop) {
+                    double stop_gap = dist_to_stop - length_meters() * 0.5;
+                    if (stop_gap > -1.0) {  // not past the stop line yet
+                        red_ahead = true;
+                        if (stop_gap < gap) {
+                            gap = std::max(0.05, stop_gap);
+                            v_lead = 0.0;
                         }
                     }
                 }
@@ -180,13 +186,13 @@ bool Vehicle::react_to_congestion() {
         }
     }
 
-    // 3. Tính gia tốc IDM
-    accel = idmAccel(current_speed, v0, vLead, gap);
+    // 3. IDM acceleration, clamped to what this vehicle can actually do.
+    accel = idm_accel(current_speed, v0, v_lead, gap);
     accel = std::clamp(accel, -max_decel, max_accel);
 
     last_gap = gap;   // step_by_step() uses this so we never move through the leader
 
-    if (gap < 15.0 || redAhead) {
+    if (gap < 15.0 || red_ahead) {
         is_congested = true;
     }
 

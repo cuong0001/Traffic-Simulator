@@ -26,13 +26,13 @@ public:
     std::vector<std::string> travel_history; // List of road id the vehicle has passed through
     bool is_reached_destination;
 
-    // --- CÁC THUỘC TÍNH BỔ SUNG PHỤC VỤ MÔ HÌNH IDM & CHUYỂN LÀN ---
-    double idm_factor{1.0};           // Hệ số cá thể hóa tốc độ (0.8 .. 1.0)
-    double lateral_offset{0.0};       // Tọa độ lệch ngang hiện tại
-    double target_lateral_offset{0.0}; // Tọa độ lệch ngang mục tiêu
-    int lane_{0};                     // Làn đường hiện tại
-    double stuck_time{0.0};           // Thời gian bị kẹt liên tục
-    double last_gap{1e9};
+    // --- IDM and lane-change state ---
+    double idm_factor{1.0};             // per-vehicle speed personality (0.8 .. 1.0)
+    double lateral_offset{0.0};         // current sideways offset from the lane centre
+    double target_lateral_offset{0.0};  // where the lane change is heading
+    int lane{0};                        // current lane, 0 is the innermost
+    double stuck_time{0.0};             // seconds spent standing still
+    double last_gap{1e9};               // gap seen by the last react_to_congestion()
 
     // Constructor
     Vehicle(std::string id, double max_speed, double max_accel, double max_decel);
@@ -40,22 +40,22 @@ public:
     // Destructor
     virtual ~Vehicle() = default;
 
-    // --- HÀM TÍNH TOÁN IDM CỐT LÕI (Thêm mới) ---
-    static double idmAccel(double v, double v0, double vLead, double gap);
+    // --- core IDM maths ---
+    static double idm_accel(double v, double v0, double v_lead, double gap);
     double desired_speed_on(const Road& road) const;
 
-    // --- VIRTUAL METHODS PHỤC VỤ ĐA HÌNH ---
-    virtual std::string type() const { return "car"; }
-    virtual double speedFactor() const { return 1.0; }
-    virtual double lengthMeters() const { return 4.5; }
-    virtual double widthMeters() const { return 1.8; }
-    virtual double congestionSensitivity() const { return 1.0; }
-    virtual bool ignoresTrafficLights() const { return false; }
-    virtual double lanePoliteness() const { return 0.5; }
+    // --- type hooks overridden by concrete vehicles (polymorphism) ---
+    virtual std::string type() const = 0;
+    virtual double speed_factor() const { return 1.0; }
+    virtual double length_meters() const { return 4.5; }
+    virtual double width_meters() const { return 1.8; }
+    virtual double congestion_sensitivity() const { return 1.0; }
+    virtual bool ignores_lights() const { return false; }
+    virtual double lane_politeness() const { return 0.5; }
 
-    virtual std::vector<int> allowedLanes(int totalLanes) const {
+    virtual std::vector<int> allowed_lanes(int total_lanes) const {
         std::vector<int> lanes;
-        for (int i = 0; i < totalLanes; ++i) lanes.push_back(i);
+        for (int i = 0; i < total_lanes; ++i) lanes.push_back(i);
         return lanes;
     }
 
@@ -89,7 +89,7 @@ public:
     double get_max_acceleration() const; 
     double get_max_deceleration() const; 
 
-    int get_lane() const { return lane_; }
+    int get_lane() const { return lane; }
     double get_lateral_offset() const { return lateral_offset; }
 
     // Setter

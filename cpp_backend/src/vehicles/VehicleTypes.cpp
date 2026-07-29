@@ -1,4 +1,4 @@
-#include "vechicles/VehicleTypes.hpp"
+#include "vehicles/VehicleTypes.hpp"
 
 std::unique_ptr<Vehicle> VehicleFactory::create(
     const std::string& type, 
@@ -16,11 +16,11 @@ std::unique_ptr<Vehicle> VehicleFactory::create(
     if (type == "motorbike") {
         return std::make_unique<Motorbike>(id, max_speed, max_accel, max_decel);
     }
-    // Default (và "car"): xe ô tô con thông thường
+    // Default, and "car": an ordinary passenger car.
     return std::make_unique<Car>(id, max_speed, max_accel, max_decel);
 }
 
-std::string VehicleFactory::randomType(std::mt19937& rng) {
+std::string VehicleFactory::random_type(std::mt19937& rng) {
     std::uniform_int_distribution<int> dist(0, 99);
     const int roll = dist(rng);
     if (roll < 68) return "car";
