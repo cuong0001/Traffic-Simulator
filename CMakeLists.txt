@@ -26,6 +26,7 @@ set(BACKEND_SOURCES
     cpp_backend/src/utils/StatisticsManager.cpp
     cpp_backend/src/utils/Json.cpp
     cpp_backend/src/utils/Observer.cpp
+    cpp_backend/src/events/TrafficEvent.cpp
     cpp_backend/src/vehicles/Vehicle.cpp
     cpp_backend/src/vehicles/VehicleTypes.cpp
 )
@@ -49,15 +50,19 @@ target_link_libraries(test_pathfinder_unit PRIVATE traffic_core)
 add_executable(test_pathfinder_edge  tests/edge_cases/test_pathfinder.cpp)
 target_link_libraries(test_pathfinder_edge PRIVATE traffic_core)
 
-#StatisticManager test
-#() Khai báo test unit
+#StatisticManager test==============================================================
+#() Unit test
 add_executable(test_statistics_unit tests/unit_tests/test_statistics.cpp)
 target_link_libraries(test_statistics_unit PRIVATE traffic_core)
 
-#() Khai báo test edge cases
+#() Edge case test
 add_executable(test_statistics_edge tests/edge_cases/test_statistics.cpp)
 target_link_libraries(test_statistics_edge PRIVATE traffic_core)
 
-#() Khai báo test stress
+#() Stress test
 add_executable(test_statistics_stress tests/stress_tests/test_statistics.cpp)
 target_link_libraries(test_statistics_stress PRIVATE traffic_core)
+
+#Traffic Event test===================================================================
+add_executable(test_trafficevent_unit tests/unit_tests/test_trafficevent.cpp)
+target_link_libraries(test_trafficevent_unit PRIVATE traffic_core)

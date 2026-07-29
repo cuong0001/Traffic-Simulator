@@ -32,6 +32,9 @@ class TrafficLight {
     // Advance the light by a time step dt (seconds): count down the current
     // phase and switch green -> yellow -> red -> green when it runs out.
     void update(double dt);
+    // Behaviours for Traffic Event:
+
+    void set_green_duration (double time);
 };
 
 #endif

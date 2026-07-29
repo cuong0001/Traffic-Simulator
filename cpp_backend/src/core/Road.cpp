@@ -50,7 +50,7 @@ double Road::get_weight() const {
 
 // Update travel cost based on the current congestion level
 void Road::update() {
-    travel_cost = base_weight * (1.0 + congestion_level);
+    update_travel_cost();
 }
 
 // Find the nearest vehicle ahead of current_vehicle on this road (the one with
@@ -75,4 +75,22 @@ std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
     }
 
     return {lead, min_gap};
+}
+
+void Road::update_travel_cost() {
+    // If road is closed, set travel cost to infinity which prevent pathfinding algorithms from routing onto this road
+    if (is_closed) {
+        travel_cost = kClosedRoadCost;
+        return;
+    }
+
+    // Calculating the composite traffic congestion level: Congestion due to current traffic volume + Congestion due to events.
+    // capacity_scale < 1.0 (accident) increase 
+    const double actual_capacity = std::max(1.0, lanes * capacity * capacity_scale);
+    double base_congestion = vehicles.size() / actual_capacity;
+    
+    congestion_level = std::min(1.0, base_congestion + event_congestion);
+
+    // Recomputed travel cost.
+    travel_cost = base_weight * (1.0 + congestion_level);
 }
