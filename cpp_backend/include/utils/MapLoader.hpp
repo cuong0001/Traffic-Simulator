@@ -50,6 +50,11 @@ public:
     // Throws MapLoadError if the file cannot be written.
     static void write_map_json(const TrafficGraph& graph, const std::string& path);
 
+    // Write the live graph back out in the native GeoJSON format, so a city
+    // edited at runtime can be reloaded by load_from_geojson().
+    // Throws MapLoadError if the file cannot be written.
+    static void write_geojson(const TrafficGraph& graph, const std::string& path);
+
     // Same serialization, returned as a compact JSON string (served by GET /api/map).
     static std::string map_json_string(const TrafficGraph& graph);
 };
