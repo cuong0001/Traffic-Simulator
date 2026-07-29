@@ -9,6 +9,19 @@
 #include <limits>
 #include <cmath>
 
+// Euclidean (straight-line) distance heuristic.
+//
+// Admissibility: h(a, b) must never overestimate the true cost from a to the
+// goal, which is what guarantees A* returns an optimal path. This holds when
+// every edge's traversal cost (travel_cost) is at least the Euclidean distance
+// between its endpoints -- the normal case for real roads, since a road cannot
+// be shorter than the straight line joining its ends and travel_cost >=
+// base_weight = length. By the triangle inequality, the straight-line distance
+// from any node to the goal is then a lower bound on the remaining path cost.
+//
+// Skipping closed roads only removes edges from the graph, which can only
+// raise the true shortest-path cost; the heuristic is unchanged and therefore
+// remains admissible.
 double AStar::heuristic(Intersection* a, Intersection* b) {
     double dx = a->x - b->x;
     double dy = a->y - b->y;
@@ -49,6 +62,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         Intersection* current = graph.intersections.at(current_name);
 
         for (Road* road : current->outgoing_edges) {
+            if (road->is_closed) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
             double tentative_g = g_score[current_name] + road->get_weight();
 
