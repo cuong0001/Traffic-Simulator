@@ -27,6 +27,8 @@ set(BACKEND_SOURCES
     cpp_backend/src/utils/Json.cpp
     cpp_backend/src/utils/Observer.cpp
     cpp_backend/src/events/TrafficEvent.cpp
+    cpp_backend/src/vehicles/Vehicle.cpp
+    cpp_backend/src/vehicles/VehicleTypes.cpp
 )
 
 find_package(Threads REQUIRED)
