@@ -1,13 +1,21 @@
 #pragma once
+#include <algorithm>
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "routing/PathFinding.hpp"
+#include "utils/Observer.hpp"
 
 class Intersection;
 class Road;
 class Building;
 class TrafficGraph;
 
-class Vehicle
+// Vehicle is an Observer so the event controller can tell it when a road it
+// still has to drive is closed, blocked or freed up again.
+class Vehicle : public IObserver
 {
 public:
     std::string id;
@@ -94,4 +102,83 @@ public:
 
     // Setter
     void set_destination(Intersection* dest) { destination = dest; }
+
+    // ======================================================================
+    // Hooks used by TrafficSimulator
+    //
+    // A Vehicle can only see its own road, so anything needing a global view
+    // (the lane next door, the queue on the next road, right of way) is
+    // decided by the simulator and handed in through these.
+    // ======================================================================
+
+    // --- Observer: an event fired somewhere on the network -----------------
+    // Only flags a reroute; the simulator replans on the next tick, because
+    // recomputing here would mean editing the route mid-notification.
+    void onNotify(const TrafficNotification& notification) override;
+    // Force a replan. Used when the graph itself changed (a road was added or
+    // removed), which is not one of the TrafficNotification kinds.
+    void request_reroute() { needs_reroute_ = true; }
+    // Does the part of the route we have NOT driven yet use this road?
+    bool remaining_route_contains(const std::string& road_id) const;
+    bool consume_reroute_flag();  // read the flag and clear it
+
+    // --- Strategy: which pathfinder this vehicle uses ----------------------
+    // The vehicle owns a PathFinding* and calls it through the base class, so
+    // swapping the algorithm swaps the object, not a branch in an if-chain.
+    // "dijkstra" (default) | "astar" | "bfs"; an unknown name falls back to
+    // dijkstra. Set per vehicle at runtime, e.g. from the API.
+    void set_algorithm(const std::string& name);
+    const std::string& algorithm() const { return algorithm_; }
+
+    // --- simulator-driven movement ----------------------------------------
+    // Advance by dt with the leader the simulator found for us. `gap` is the
+    // bumper-to-bumper distance, or 1e9 when nothing is ahead. Unlike
+    // step_by_step() this does not look for a leader itself, so the simulator
+    // can point it at a vehicle in another lane or on the next road.
+    void advance(double dt, const Vehicle* lead, double gap, double sim_time);
+
+    // Seconds this vehicle has been travelling (accumulated in advance()).
+    double travel_time() const { return travel_time_; }
+
+    // --- multi-lane, driven by the simulator's MOBIL solver ----------------
+    int prev_lane() const { return prev_lane_; }
+    double prev_lane_blocked_until() const { return prev_lane_blocked_until_; }
+    bool lane_change_ready(double sim_time) const;
+    void set_lane(int new_lane, double sim_time);
+
+    // --- junction yielding and gridlock relief -----------------------------
+    // Impatience: grows while yielding at a junction and resets once the
+    // vehicle gets moving, so its gap acceptance becomes progressively bolder.
+    // Nobody yields forever, which is what stops one stream starving the other.
+    // Capped so a vehicle stuck for minutes does not build an absurd score.
+    void add_zone_wait(double seconds) {
+        zone_wait_ = std::min(kMaxZoneWait, zone_wait_ + seconds);
+    }
+    double zone_wait() const { return zone_wait_; }
+    bool is_forced(double sim_time) const { return sim_time < forced_until_; }
+    void grant_forced_clearance(double until_sim_time) { forced_until_ = until_sim_time; }
+    // Last resort: jump to a later road of the route to break a deadlock.
+    // Refuses if the target slot is occupied, so the next tick tries again.
+    void rescue_to(std::size_t new_index);
+
+private:
+    static constexpr double kMaxZoneWait = 15.0;  // s of impatience worth tracking
+
+    // Single entry point to the routing strategy, so request_route() and
+    // recompute_route() can never disagree about which one is in use.
+    std::vector<Intersection*> run_router(const TrafficGraph& graph,
+                                          const std::string& start_id,
+                                          const std::string& target_id) const;
+
+    bool needs_reroute_ = false;           // set by onNotify(), read by the simulator
+    std::string algorithm_ = "dijkstra";
+    std::unique_ptr<PathFinding> router_;  // the Strategy object, swapped at runtime
+    double travel_time_ = 0.0;             // accumulated travelling time (s)
+
+    double lane_change_cooldown_ = 0.0;    // s until the next change is allowed
+    int prev_lane_ = -1;                   // lane just vacated
+    double prev_lane_blocked_until_ = 0.0; // sim time before which going back is discouraged
+
+    double zone_wait_ = 0.0;               // accumulated impatience at a junction
+    double forced_until_ = -1.0;           // sim time until which we may push through
 };

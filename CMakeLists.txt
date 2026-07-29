@@ -66,3 +66,7 @@ target_link_libraries(test_statistics_stress PRIVATE traffic_core)
 #Traffic Event test===================================================================
 add_executable(test_trafficevent_unit tests/unit_tests/test_trafficevent.cpp)
 target_link_libraries(test_trafficevent_unit PRIVATE traffic_core)
+
+#Vehicle test=========================================================================
+add_executable(test_vehicle_unit tests/unit_tests/test_vehicle.cpp)
+target_link_libraries(test_vehicle_unit PRIVATE traffic_core)
