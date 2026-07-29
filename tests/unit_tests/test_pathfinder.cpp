@@ -342,4 +342,48 @@ TEST_SUITE("PathFinding – Unit Tests") {
         }
     }
 
+    TEST_CASE("Closed road forces a detour in all three strategies") {
+        // Diamond graph: A->C->D (cost 10) is the cheap route, A->B->D
+        // (cost 20) the expensive one. Closing A->C must make every
+        // algorithm use A->B->D regardless of weights or heuristic.
+        std::unique_ptr<TrafficGraph> g(make_diamond_graph());
+        g->edges["AC"]->is_closed = true;
+
+        Dijkstra dijk;
+        BFS bfs;
+        AStar astar;
+        std::vector<std::pair<std::string, PathFinding*>> algos = {
+            {"Dijkstra", &dijk}, {"BFS", &bfs}, {"AStar", &astar}
+        };
+
+        for (auto& [name, algo] : algos) {
+            INFO("Algorithm: " << name);
+            auto ids = names_of(algo->find_path(*g, "A", "D"));
+
+            REQUIRE(ids.size() == 3);
+            CHECK(ids[0] == "A");
+            CHECK(ids[1] == "B");
+            CHECK(ids[2] == "D");
+        }
+    }
+
+    TEST_CASE("Closing the only route makes the destination unreachable") {
+        // Linear chain N0->N1->N2->N3->N4. Closing N2->N3 cuts off N3 and N4,
+        // so there is no path from N0 to N4.
+        std::unique_ptr<TrafficGraph> g(make_chain_graph(5));
+        g->edges["N2_N3"]->is_closed = true;
+
+        Dijkstra dijk;
+        BFS bfs;
+        AStar astar;
+        std::vector<std::pair<std::string, PathFinding*>> algos = {
+            {"Dijkstra", &dijk}, {"BFS", &bfs}, {"AStar", &astar}
+        };
+
+        for (auto& [name, algo] : algos) {
+            INFO("Algorithm: " << name);
+            CHECK(algo->find_path(*g, "N0", "N4").empty());
+        }
+    }
+
 } // TEST_SUITE
