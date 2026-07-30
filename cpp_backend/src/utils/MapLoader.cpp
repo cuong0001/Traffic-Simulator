@@ -653,7 +653,11 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
     // derive the road graph from the geometry.
     std::vector<const json*> features;
     std::vector<const json*> osm_roads, osm_buildings, osm_signals;
-    bool native = false;
+    // write_geojson stamps this on everything it produces. Without it, a map
+    // saved with no nodes in it has nothing to sniff and gets mistaken for an
+    // OSM export, so the failure blames missing highway tags instead of saying
+    // the graph was empty.
+    bool native = root.value("generator", "") == "urban-traffic-simulator";
     for (const auto& f : root["features"]) {
         if (!f.is_object() || !f.contains("properties") || !f["properties"].is_object() ||
             !f.contains("geometry") || !f["geometry"].is_object() ||
@@ -799,5 +803,109 @@ void MapLoader::write_map_json(const TrafficGraph& graph, const std::string& pat
     file << text;
     if (!file) {
         throw MapLoadError("failed while writing map JSON: " + path);
+    }
+}
+
+void MapLoader::write_geojson(const TrafficGraph& graph, const std::string& path) {
+    json features = json::array();
+
+    // --- nodes -------------------------------------------------------------
+    for (const auto& [id, node] : graph.intersections) {
+        json props{
+            {"uts:kind", "node"},
+            {"id", id},
+            {"name", node->display_name},
+            {"zone", node->zone},
+        };
+        if (node->is_signalized && node->light_system) {
+            props["signal"] = true;
+            props["sgroups"] = node->light_system->get_groups();
+            props["sgreen"] = node->light_system->get_green_duration();
+            props["samber"] = node->light_system->get_yellow_duration();
+            props["sred"] = node->light_system->get_red_duration();
+        }
+        features.push_back({
+            {"type", "Feature"},
+            {"properties", std::move(props)},
+            {"geometry", {{"type", "Point"}, {"coordinates", {node->x, node->y}}}},
+        });
+    }
+
+    // --- roads (a two-way street is one feature; skip the "_r" twin) -------
+    for (const auto& [id, road] : graph.edges) {
+        if (id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0 &&
+            graph.edges.count(id.substr(0, id.size() - 2))) {
+            continue;
+        }
+        features.push_back({
+            {"type", "Feature"},
+            {"properties", {
+                {"uts:kind", "road"},
+                {"id", id},
+                {"from", road->source->name},
+                {"to", road->target->name},
+                {"length", road->length},
+                {"speed_kmh", road->speed_limit},
+                {"capacity", road->capacity},
+                {"lanes", road->lanes},
+                {"oneway", road->is_one_way},
+            }},
+            {"geometry", {{"type", "LineString"}, {"coordinates", json::array({
+                json::array({road->source->x, road->source->y}),
+                json::array({road->target->x, road->target->y}),
+            })}}},
+        });
+    }
+
+    // --- buildings ---------------------------------------------------------
+    for (const auto& [key, building] : graph.buildings) {
+        if (building->footprint.empty()) continue;   // nothing to draw or save
+        json ring = json::array();
+        for (const auto& [px, py] : building->footprint) ring.push_back({px, py});
+        ring.push_back({building->footprint.front().first,
+                        building->footprint.front().second});  // GeoJSON rings close
+        json props{
+            {"uts:kind", "building"},
+            {"name", building->name},
+            {"kind", building->type},
+            {"levels", building->levels},
+        };
+        if (!building->node_id.empty()) props["node"] = building->node_id;
+        features.push_back({
+            {"type", "Feature"},
+            {"properties", std::move(props)},
+            {"geometry", {{"type", "Polygon"}, {"coordinates", json::array({std::move(ring)})}}},
+        });
+    }
+
+    // --- zones (display-only rectangles) -----------------------------------
+    for (const Zone& z : graph.zones) {
+        json ring = json::array({
+            json::array({z.x, z.y}),
+            json::array({z.x + z.w, z.y}),
+            json::array({z.x + z.w, z.y + z.h}),
+            json::array({z.x, z.y + z.h}),
+            json::array({z.x, z.y}),
+        });
+        features.push_back({
+            {"type", "Feature"},
+            {"properties", {{"uts:kind", "zone"}, {"name", z.name}, {"kind", z.kind}}},
+            {"geometry", {{"type", "Polygon"}, {"coordinates", json::array({std::move(ring)})}}},
+        });
+    }
+
+    const json out{
+        {"type", "FeatureCollection"},
+        {"generator", "urban-traffic-simulator"},
+        {"features", std::move(features)},
+    };
+
+    std::ofstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        throw MapLoadError("cannot write GeoJSON: " + path);
+    }
+    file << out.dump();
+    if (!file) {
+        throw MapLoadError("failed while writing GeoJSON: " + path);
     }
 }

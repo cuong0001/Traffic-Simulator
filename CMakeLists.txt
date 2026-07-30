@@ -70,3 +70,7 @@ target_link_libraries(test_trafficevent_unit PRIVATE traffic_core)
 #Vehicle test=========================================================================
 add_executable(test_vehicle_unit tests/unit_tests/test_vehicle.cpp)
 target_link_libraries(test_vehicle_unit PRIVATE traffic_core)
+
+#Map loader test======================================================================
+add_executable(test_maploader_unit tests/unit_tests/test_maploader.cpp)
+target_link_libraries(test_maploader_unit PRIVATE traffic_core)
