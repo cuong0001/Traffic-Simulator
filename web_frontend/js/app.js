@@ -62,6 +62,7 @@ let signalHeads = [];
 let props = [];                       // scattered trees [{name, x, y, w}]
 let world = { minX: 0, minY: 0, w: 1600, h: 920 };
 let T = { s: 1, tx: 0, ty: 0 };       // world -> canvas-px transform
+let fitScale = 1;                     // scale at which the whole city fits on screen
 let paintedT = null;                  // transform the static bitmap was painted at
 let rebuild = null;                   // in-flight sliced rebuild
 let staticDirty = true;
@@ -108,6 +109,7 @@ function fitView() {
     (canvas.width - margin * 2) / world.w,
     (canvas.height - margin * 2) / world.h
   );
+  fitScale = s;      // zoom limits are expressed relative to this, see the wheel handler
   T.s = s;
   T.tx = (canvas.width - world.w * s) / 2 - world.minX * s;
   T.ty = (canvas.height - world.h * s) / 2 - world.minY * s;
@@ -147,13 +149,26 @@ function initInput() {
     const r = canvas.getBoundingClientRect();
     const cx = (e.clientX - r.left) * scaleX();
     const cy = (e.clientY - r.top) * scaleY();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const ns = Math.max(0.02, Math.min(8, T.s * factor));
+    const factor = e.deltaY > 0 ? 1 / 1.15 : 1.15;
+    // Limits are relative to the fit view, not absolute, because T.s is in
+    // canvas pixels per world METRE and that varies hugely by map: a fixed cap
+    // that reaches street level on a small map barely leaves the district view
+    // on a real OSM export. 25 px/m is the floor for the deepest zoom so a 4.5 m
+    // car is always reachable at ~110 px however large the city is.
+    const maxS = Math.max(fitScale * 9, 25);
+    const ns = Math.max(fitScale * 0.5, Math.min(maxS, T.s * factor));
     // keep the world point under the cursor fixed
     T.tx = cx - (cx - T.tx) * (ns / T.s);
     T.ty = cy - (cy - T.ty) * (ns / T.s);
     T.s = ns;
   }, { passive: false });
+
+  // Double-click to frame the whole city again -- but not while an editing tool
+  // is armed, where the second click is a placement, not a request to zoom out.
+  canvas.addEventListener("dblclick", () => {
+    if (placingProp || UI.isArmed()) return;
+    fitView();
+  });
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "f" || e.key === "F") fitView();

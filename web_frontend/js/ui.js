@@ -118,6 +118,11 @@ function disarm() {
   hooks.setPlacing?.(null);
 }
 
+// True while a map-editing tool is waiting for a click. The canvas asks before
+// treating a double-click as "fit view", so double-clicking with Add Road armed
+// places the endpoint instead of throwing the camera back to the whole city.
+export function isArmed() { return tool !== null; }
+
 // Routed from app.js on every canvas click. Returns true when the click was
 // consumed by a tool, so the inspector stays out of the way.
 export function handleMapClick(x, y, hit, propIndex) {
