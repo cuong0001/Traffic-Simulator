@@ -29,6 +29,8 @@ set(BACKEND_SOURCES
     cpp_backend/src/events/TrafficEvent.cpp
     cpp_backend/src/vehicles/Vehicle.cpp
     cpp_backend/src/vehicles/VehicleTypes.cpp
+    cpp_backend/src/simulation/TrafficController.cpp
+    cpp_backend/src/simulation/TrafficSimulator.cpp
 )
 
 find_package(Threads REQUIRED)
@@ -74,3 +76,7 @@ target_link_libraries(test_vehicle_unit PRIVATE traffic_core)
 #Map loader test======================================================================
 add_executable(test_maploader_unit tests/unit_tests/test_maploader.cpp)
 target_link_libraries(test_maploader_unit PRIVATE traffic_core)
+
+#Simulator test=======================================================================
+add_executable(test_simulation_unit tests/unit_tests/test_simulation.cpp)
+target_link_libraries(test_simulation_unit PRIVATE traffic_core)

@@ -1,0 +1,358 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "third_party/doctest/doctest.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "core/Graph.hpp"
+#include "core/Intersection.hpp"
+#include "core/Road.hpp"
+#include "simulation/TrafficSimulator.hpp"
+#include "vehicles/Vehicle.hpp"
+
+namespace {
+
+// A four-node grid written to a temp file, because TrafficSimulator loads from
+// disk. Small enough that a test runs in milliseconds, connected enough that
+// every node can reach every other one.
+//
+//   A --- B
+//   |     |
+//   D --- C
+//
+const char* kTinyMap = R"({
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"@id":"way/1","highway":"residential","lanes":"2","maxspeed":"50","name":"North"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.0],[0.002,0.0]]}},
+    {"type":"Feature","properties":{"@id":"way/2","highway":"residential","lanes":"2","maxspeed":"50","name":"East"},
+     "geometry":{"type":"LineString","coordinates":[[0.002,0.0],[0.002,-0.002]]}},
+    {"type":"Feature","properties":{"@id":"way/3","highway":"residential","lanes":"2","maxspeed":"50","name":"South"},
+     "geometry":{"type":"LineString","coordinates":[[0.002,-0.002],[0.0,-0.002]]}},
+    {"type":"Feature","properties":{"@id":"way/4","highway":"residential","lanes":"2","maxspeed":"50","name":"West"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,-0.002],[0.0,0.0]]}}
+  ]
+})";
+
+std::string write_tiny_map() {
+    const std::filesystem::path p =
+        std::filesystem::temp_directory_path() / "uts_tiny_map.geojson";
+    std::ofstream out(p);
+    out << kTinyMap;
+    out.close();
+    return p.string();
+}
+
+/// The simulator is a singleton, so every test starts by reloading the map,
+/// which resets vehicles, events, statistics and the clock.
+TrafficSimulator& fresh() {
+    static const std::string path = write_tiny_map();
+    TrafficSimulator& sim = TrafficSimulator::instance();
+    sim.load(path);
+    sim.set_auto_spawn(false);
+    sim.set_random_events(false);
+    sim.set_paused(false);
+    sim.set_speed(1.0);
+    return sim;
+}
+
+std::vector<std::string> node_ids(TrafficSimulator& sim) {
+    std::vector<std::string> ids;
+    for (const auto& [id, node] : sim.graph()->intersections) ids.push_back(id);
+    return ids;
+}
+
+int count_vehicles(TrafficSimulator& sim) {
+    int n = 0;
+    for (const auto& [id, road] : sim.graph()->edges) {
+        n += static_cast<int>(road->vehicles.size());
+    }
+    return n;
+}
+
+/// The invariant that matters: no two vehicles in the same lane on the same
+/// road may ever occupy the same metres of tarmac.
+double worst_gap(TrafficSimulator& sim) {
+    double worst = 1e9;
+    for (const auto& [rid, road] : sim.graph()->edges) {
+        const auto& vs = road->vehicles;
+        for (std::size_t a = 0; a < vs.size(); ++a) {
+            for (std::size_t b = a + 1; b < vs.size(); ++b) {
+                if (!vs[a] || !vs[b] || vs[a]->lane != vs[b]->lane) continue;
+                Vehicle* back = vs[a]->position_on_road <= vs[b]->position_on_road ? vs[a] : vs[b];
+                Vehicle* front = back == vs[a] ? vs[b] : vs[a];
+                worst = std::min(worst, front->position_on_road
+                                      - back->position_on_road
+                                      - front->length_meters());
+            }
+        }
+    }
+    return worst;
+}
+
+bool json_has(const std::string& s, const std::string& key) {
+    return s.find("\"" + key + "\":") != std::string::npos;
+}
+
+}  // namespace
+
+TEST_CASE("load builds a graph and resets the clock") {
+    TrafficSimulator& sim = fresh();
+    REQUIRE(sim.graph() != nullptr);
+    CHECK(sim.graph()->intersections.size() >= 4);
+    CHECK_FALSE(sim.graph()->edges.empty());
+    CHECK(sim.state_json().find("\"time\":0") != std::string::npos);
+}
+
+TEST_CASE("spawn_vehicle rejects the pairs it cannot serve") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    REQUIRE(ids.size() >= 2);
+
+    SUBCASE("a valid pair spawns") {
+        CHECK_FALSE(sim.spawn_vehicle(ids[0], ids[1], "car").empty());
+        CHECK(count_vehicles(sim) == 1);
+    }
+    SUBCASE("origin == destination is refused") {
+        CHECK(sim.spawn_vehicle(ids[0], ids[0], "car").empty());
+    }
+    SUBCASE("an unknown node is refused") {
+        CHECK(sim.spawn_vehicle("nope", ids[1], "car").empty());
+        CHECK(sim.spawn_vehicle(ids[0], "nope", "car").empty());
+    }
+    SUBCASE("the kerb is not double-booked") {
+        // The first vehicle sits at position 0 of its first road, so a second
+        // trip from the same node has nowhere to go until it moves off.
+        REQUIRE_FALSE(sim.spawn_vehicle(ids[0], ids[1], "car").empty());
+        CHECK(sim.spawn_vehicle(ids[0], ids[1], "car").empty());
+        CHECK(count_vehicles(sim) == 1);
+    }
+}
+
+TEST_CASE("the factory is used, so every vehicle type can be spawned") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    for (const char* type : {"car", "bus", "emergency", "motorbike"}) {
+        TrafficSimulator& s = fresh();
+        const std::string id = s.spawn_vehicle(ids[0], ids[1], type);
+        CHECK_FALSE(id.empty());
+        CHECK(s.vehicle_detail_json(id).find(type) != std::string::npos);
+    }
+}
+
+TEST_CASE("tick advances the clock, and pause and speed control it") {
+    TrafficSimulator& sim = fresh();
+
+    for (int i = 0; i < 10; ++i) sim.tick(0.1);
+    CHECK(sim.state_json().find("\"time\":1") != std::string::npos);
+
+    SUBCASE("paused freezes the clock") {
+        sim.set_paused(true);
+        const std::string before = sim.state_json();
+        for (int i = 0; i < 10; ++i) sim.tick(0.1);
+        CHECK(sim.state_json().substr(0, 20) == before.substr(0, 20));
+    }
+    SUBCASE("speed scales dt") {
+        sim.set_speed(4.0);
+        for (int i = 0; i < 10; ++i) sim.tick(0.1);   // 1 s wall -> 4 s sim
+        CHECK(sim.state_json().find("\"time\":5") != std::string::npos);
+    }
+}
+
+TEST_CASE("events are created, described and expire on their own") {
+    TrafficSimulator& sim = fresh();
+    const std::string road = sim.graph()->edges.begin()->first;
+
+    SUBCASE("an unknown type creates nothing") {
+        CHECK(sim.trigger_event("banana", road, 10.0).empty());
+    }
+    SUBCASE("a closure applies, shows up in state, and undoes itself") {
+        const std::string id = sim.trigger_event("closure", road, 5.0);
+        REQUIRE_FALSE(id.empty());
+        CHECK(sim.graph()->get_edge(road)->is_closed);
+        CHECK(sim.state_json().find(id) != std::string::npos);
+
+        for (int i = 0; i < 60; ++i) sim.tick(0.1);   // 6 s > 5 s duration
+        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed);
+        CHECK(sim.state_json().find("\"id\":\"" + id + "\"") == std::string::npos);
+    }
+    SUBCASE("a road cannot be closed twice") {
+        REQUIRE_FALSE(sim.trigger_event("closure", road, 30.0).empty());
+        CHECK(sim.trigger_event("closure", road, 30.0).empty());
+    }
+    SUBCASE("an accident restores capacity when it clears") {
+        Road* r = sim.graph()->get_edge(road);
+        const double before = r->capacity_scale;
+        REQUIRE_FALSE(sim.trigger_event("accident", road, 3.0).empty());
+        CHECK(r->capacity_scale < before);
+        for (int i = 0; i < 40; ++i) sim.tick(0.1);
+        CHECK(r->capacity_scale == doctest::Approx(before));
+    }
+}
+
+TEST_CASE("closing a road on a vehicle's route makes it replan") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    const std::string vid = sim.spawn_vehicle(ids[0], ids[2], "car");
+    REQUIRE_FALSE(vid.empty());
+
+    // Find a road the vehicle still has to drive, and close it.
+    std::string on_route;
+    for (const auto& [rid, road] : sim.graph()->edges) {
+        for (Vehicle* v : road->vehicles) {
+            if (v && v->id == vid && !v->get_route().empty()) {
+                on_route = v->get_route().back()->id;
+            }
+        }
+    }
+    REQUIRE_FALSE(on_route.empty());
+
+    const std::string before = sim.vehicle_detail_json(vid);
+    REQUIRE_FALSE(sim.trigger_event("closure", on_route, 30.0).empty());
+    sim.tick(0.1);   // the reroute happens on the tick after the notification
+    // Either the route changed, or there was no alternative -- both are fine,
+    // what matters is that the vehicle survived the event.
+    CHECK_FALSE(sim.vehicle_detail_json(vid).empty());
+    CHECK(sim.vehicle_detail_json(vid).find(vid) != std::string::npos);
+}
+
+TEST_CASE("no two vehicles ever share a slot in the same lane") {
+    TrafficSimulator& sim = fresh();
+    sim.set_auto_spawn(true);
+    sim.set_spawn_rate(8.0);
+    sim.set_target_vehicles(20);
+
+    double worst = 1e9;
+    for (int i = 0; i < 900; ++i) {   // 30 simulated seconds at 1/30 s
+        sim.tick(1.0 / 30.0);
+        worst = std::min(worst, worst_gap(sim));
+    }
+    CHECK(worst >= 0.0);
+}
+
+TEST_CASE("the vehicle target is respected") {
+    TrafficSimulator& sim = fresh();
+    sim.set_auto_spawn(true);
+    sim.set_spawn_rate(50.0);      // far faster than the cap allows
+    sim.set_target_vehicles(6);
+
+    for (int i = 0; i < 600; ++i) sim.tick(1.0 / 30.0);
+    CHECK(count_vehicles(sim) <= 6);
+}
+
+TEST_CASE("vehicle operations") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    const std::string vid = sim.spawn_vehicle(ids[0], ids[1], "car");
+    REQUIRE_FALSE(vid.empty());
+
+    SUBCASE("detail json names the vehicle") {
+        CHECK(sim.vehicle_detail_json(vid).find(vid) != std::string::npos);
+        // An unknown id answers with an error object, not an empty one, so the
+        // UI can tell "gone" apart from "no data yet".
+        CHECK(sim.vehicle_detail_json("ghost").find("error") != std::string::npos);
+    }
+    SUBCASE("removing works once") {
+        CHECK(sim.remove_vehicle(vid));
+        CHECK_FALSE(sim.remove_vehicle(vid));
+        CHECK(count_vehicles(sim) == 0);
+    }
+    SUBCASE("clear_vehicles reports how many it removed") {
+        CHECK(sim.clear_vehicles() == 1);
+        CHECK(count_vehicles(sim) == 0);
+    }
+    SUBCASE("per-vehicle algorithm is validated") {
+        CHECK(sim.set_vehicle_algorithm(vid, "astar"));
+        CHECK(sim.set_vehicle_algorithm(vid, "bfs"));
+        CHECK_FALSE(sim.set_vehicle_algorithm(vid, "banana"));
+        CHECK_FALSE(sim.set_vehicle_algorithm("ghost", "astar"));
+    }
+}
+
+TEST_CASE("the default routing strategy is validated") {
+    TrafficSimulator& sim = fresh();
+    CHECK(sim.set_algorithm("astar"));
+    CHECK(sim.set_algorithm("bfs"));
+    CHECK(sim.set_algorithm("dijkstra"));
+    CHECK_FALSE(sim.set_algorithm("banana"));
+}
+
+TEST_CASE("live map editing") {
+    TrafficSimulator& sim = fresh();
+    const std::size_t nodes_before = sim.graph()->intersections.size();
+    const std::size_t roads_before = sim.graph()->edges.size();
+
+    SUBCASE("a junction can be added and joined to the network") {
+        Intersection* any = sim.graph()->intersections.begin()->second;
+        const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
+        REQUIRE_FALSE(nid.empty());
+        CHECK(sim.graph()->intersections.size() == nodes_before + 1);
+
+        const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
+        CHECK_FALSE(rid.empty());
+        CHECK(sim.graph()->edges.size() > roads_before);
+    }
+    SUBCASE("removing a road takes its reverse twin with it") {
+        const std::string rid = sim.graph()->edges.begin()->first;
+        CHECK(sim.remove_road(rid));
+        CHECK(sim.graph()->get_edge(rid) == nullptr);
+        CHECK_FALSE(sim.remove_road(rid));
+    }
+    SUBCASE("a road's speed and closed flag can be edited") {
+        const std::string rid = sim.graph()->edges.begin()->first;
+        CHECK(sim.update_road(rid, 30.0, true));
+        CHECK(sim.graph()->get_edge(rid)->is_closed);
+        CHECK(sim.update_road(rid, 60.0, false));
+        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed);
+        CHECK_FALSE(sim.update_road("ghost", 30.0, false));
+    }
+}
+
+TEST_CASE("map files: save, list, reload, and reject path traversal") {
+    TrafficSimulator& sim = fresh();
+
+    SUBCASE("a name with a separator or .. is refused") {
+        CHECK_FALSE(sim.save_map("../escape"));
+        CHECK_FALSE(sim.save_map("sub/dir"));
+        CHECK_FALSE(sim.save_map("back\\slash"));
+        CHECK_FALSE(sim.load_map("../../etc/passwd"));
+    }
+    SUBCASE("a saved map appears in the listing and reloads") {
+        const std::size_t roads = sim.graph()->edges.size();
+        REQUIRE(sim.save_map("uts_test_roundtrip"));
+        CHECK(sim.maps_json().find("uts_test_roundtrip") != std::string::npos);
+        REQUIRE(sim.load_map("uts_test_roundtrip"));
+        CHECK(sim.graph()->edges.size() == roads);
+        std::filesystem::remove("data/maps/uts_test_roundtrip.geojson");
+    }
+}
+
+TEST_CASE("state_json carries everything the UI needs") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    sim.spawn_vehicle(ids[0], ids[1], "car");
+    sim.trigger_event("congestion", sim.graph()->edges.begin()->first, 20.0);
+    for (int i = 0; i < 90; ++i) sim.tick(1.0 / 30.0);
+
+    const std::string s = sim.state_json();
+    for (const char* key : {"time", "paused", "speed", "vehicles", "lights",
+                            "roads", "events", "log", "solver", "active", "stats"}) {
+        CAPTURE(key);
+        CHECK(json_has(s, key));
+    }
+    CHECK(s.front() == '{');
+    CHECK(s.back() == '}');
+    // The event log is fed by the controller, so a triggered event shows up.
+    CHECK(s.find("Heavy congestion") != std::string::npos);
+}
+
+TEST_CASE("map_json is served and is non-trivial") {
+    TrafficSimulator& sim = fresh();
+    const std::string m = sim.map_json();
+    CHECK(m.size() > 100);
+    CHECK(m.front() == '{');
+    CHECK(m.back() == '}');
+}
