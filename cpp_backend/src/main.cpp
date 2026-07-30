@@ -40,6 +40,12 @@ int main(int argc, char** argv) {
               << "  roads     = " << sim.graph()->edges.size() << "\n"
               << "  buildings = " << sim.graph()->buildings.size() << "\n";
 
+    // A map that parses can still be unusable: empty, or split into pieces the
+    // routers cannot cross. Say so at startup rather than letting it surface
+    // later as vehicles that mysteriously fail to spawn.
+    const std::string warning = MapLoader::validate(*sim.graph());
+    std::cout << "  validate  = " << (warning.empty() ? "OK" : warning) << "\n";
+
     // Simulation thread: advance ~20x/second in real time. The speed factor
     // (set via /api/speed) scales simulated time inside tick().
     std::thread([&sim] {
