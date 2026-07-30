@@ -6,15 +6,17 @@
 #include "core/Intersection.hpp"
 #include "core/Road.hpp"
 
-// Default length of traffic event (when the caller doesn't say)
-double default_duration(const std::string& type) {
-    if (type == "closure") return 60.0;
-    if (type == "accident") return 50.0;
-    if (type == "light") return 40.0;
-    return 45.0; //congestion event
-}
+namespace {
+    // Default length of traffic event (when the caller doesn't say)
+    double default_duration(const std::string& type) {
+        if (type == "closure") return 60.0;
+        if (type == "accident") return 50.0;
+        if (type == "light") return 40.0;
+        return 45.0; //congestion event
+    }
 
-constexpr std::size_t kMaxLog = 30;
+    constexpr std::size_t kMaxLog = 30;
+}
 
 void TrafficController::set_graph(TrafficGraph* graph) {
     events_.clear();  //clear all event from old map

@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <sstream>
+#include <memory>
 
 #include "core/Building.hpp"
 #include "core/Graph.hpp"
@@ -17,11 +18,12 @@
 #include "vehicles/Vehicle.hpp"
 #include "vehicles/VehicleTypes.hpp"
 
+namespace {
 // Free space a new vehicle needs at the start of its first road, on top of its
 // own length. Spawning is skipped when the slot is taken; auto_spawn simply
 // tries again on a later tick.
-constexpr double kSpawnClearance = 3.0;
-
+    constexpr double kSpawnClearance = 3.0;
+}
 
 // Singleton 
 TrafficSimulator& TrafficSimulator::instance() {
@@ -46,7 +48,10 @@ void TrafficSimulator::clear() {
     graph_ = nullptr;
 }
 
-void TrafficSimulator::load(const std::string& map_path) {
+void TrafficSimulator::load(const std::string& map_path) 
+{
+    std::unique_ptr<TrafficGraph> loaded(new TrafficGraph());
+    MapLoader::load_from_geojson(*loaded, map_path);
     std::lock_guard<std::mutex> lock(mtx_);
     clear();
     graph_ = new TrafficGraph();
@@ -285,15 +290,17 @@ void TrafficSimulator::auto_spawn(double dt) {
     }
 }
 
-// JSON for the web API
-std::string jstr(const std::string& s) {
-    std::string out = "\"";
-    for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+namespace {
+    // JSON for the web API
+    std::string jstr(const std::string& s) {
+        std::string out = "\"";
+        for (char c : s) {
+            if (c == '"' || c == '\\') out += '\\';
+            out += c;
+        }
+        out += '"';
+        return out;
     }
-    out += '"';
-    return out;
 }
 
 std::string TrafficSimulator::state_json() {
@@ -777,34 +784,35 @@ bool TrafficSimulator::load_map(const std::string& name) {
 // Vehicle::advance() as an explicit (leader, gap) pair once per tick.
 // ==========================================================================
 
-// ---- MOBIL (lane-change decision model) ---------------------------------
-constexpr double kMobilSafeDecel = -2.0;       // new follower may brake this hard
-constexpr double kMobilThreshold = 0.35;       // min gain to bother (m/s^2)
-constexpr double kMobilReturnThreshold = 1.0;  // going back needs a bigger win
-constexpr double kMobilObstruction = 0.4;      // only change if actually held up
+namespace {
+    // ---- MOBIL (lane-change decision model) ---------------------------------
+    constexpr double kMobilSafeDecel = -2.0;       // new follower may brake this hard
+    constexpr double kMobilThreshold = 0.35;       // min gain to bother (m/s^2)
+    constexpr double kMobilReturnThreshold = 1.0;  // going back needs a bigger win
+    constexpr double kMobilObstruction = 0.4;      // only change if actually held up
 
-// ---- junction yielding (M6) ---------------------------------------------
-constexpr double kJunctionZone = 12.0;   // m before the box where we look
-constexpr double kZoneApproach = 26.0;   // m at which yielding starts
-constexpr double kImpatience = 6.0;      // s of waiting before we stop yielding
+    // ---- junction yielding (M6) ---------------------------------------------
+    constexpr double kJunctionZone = 12.0;   // m before the box where we look
+    constexpr double kZoneApproach = 26.0;   // m at which yielding starts
+    constexpr double kImpatience = 6.0;      // s of waiting before we stop yielding
 
-// ---- gridlock breaking (M7) ---------------------------------------------
-constexpr double kStuckForced = 10.0;    // s stopped -> grant right of way
-constexpr double kForcedGrant = 8.0;     // s that grant lasts
-constexpr double kStuckRescue = 45.0;    // s stopped -> teleport along the route
+    // ---- gridlock breaking (M7) ---------------------------------------------
+    constexpr double kStuckForced = 10.0;    // s stopped -> grant right of way
+    constexpr double kForcedGrant = 8.0;     // s that grant lasts
+    constexpr double kStuckRescue = 45.0;    // s stopped -> teleport along the route
 
-// ---- looking past the end of the current road ----------------------------
-// Distance before the junction at which we start watching the queue on the
-// next road. Braking from the fastest desired speed (~22 m/s) at kIdmB = 3.0
-// takes v^2 / 2b = 81 m, but the junction solver already slows traffic on the
-// approach, so 60 m is enough in practice and keeps the scan cheap.
-constexpr double kCrossRoadLookahead = 60.0;
+    // ---- looking past the end of the current road ----------------------------
+    // Distance before the junction at which we start watching the queue on the
+    // next road. Braking from the fastest desired speed (~22 m/s) at kIdmB = 3.0
+    // takes v^2 / 2b = 81 m, but the junction solver already slows traffic on the
+    // approach, so 60 m is enough in practice and keeps the scan cheap.
+    constexpr double kCrossRoadLookahead = 60.0;
 
-// Bumper-to-bumper gap between two vehicles on the same road.
-double gap_between(const Vehicle* back, const Vehicle* front) {
-    return front->position_on_road - back->position_on_road - front->length_meters();
+    // Bumper-to-bumper gap between two vehicles on the same road.
+    double gap_between(const Vehicle* back, const Vehicle* front) {
+        return front->position_on_road - back->position_on_road - front->length_meters();
+    }
 }
-
 
 // Nearest vehicle ahead of `v` in the same lane, looking past the end of the
 // current road when nothing blocks us on it.
