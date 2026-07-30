@@ -22,6 +22,17 @@ export const Sprites = (() => {
         "building-1": "building-1.png",
         "building-2": "building-2.png",
         "building-3": "building-3.png",
+        // vehicles: "car" is picked from the 4 colours by vehicle-id hash
+        "car-1": "car-blue.png",
+        "car-2": "car-red.png",
+        "car-3": "car-yellow.png",
+        "car-4": "car-pink.png",
+        "emergency-1": "ambulance-yes.png",
+        "bus-1": "firetruck-yes.png",
+        // signal heads, indexed by the state the backend reports (0/1/2)
+        "light-0": "trafficlight-red.png",
+        "light-1": "trafficlight-yellow.png",
+        "light-2": "trafficlight-green.png",
     };
 
     const store = {};        // name -> { img, w, h }

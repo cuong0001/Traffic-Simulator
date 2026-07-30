@@ -1,4 +1,4 @@
-// Illustrated map renderer (static — no vehicles yet).
+// Illustrated map renderer + live simulation layer.
 //
 // Architecture ported from the reference project and adapted to our map.json:
 //   - a CACHED STATIC LAYER (ground, buildings, road ribbons, trees, stop-lines)
@@ -9,11 +9,17 @@
 //     slightly blurry) while a crisp rebuild runs in the background.
 // Scenery (trees) is scattered deterministically into road-free, building-free
 // gaps via an occupancy grid, so it coexists with the real OSM footprints.
+//
+// On top of that sits a DYNAMIC LAYER redrawn every frame: vehicles (position
+// interpolated from /api/state at 4 Hz), live signal colours, and congested or
+// closed roads. When the simulation server is absent the static map still
+// renders on its own and the control panel stays hidden.
 
 "use strict";
 
-import { loadMap } from "./api.js";
+import { loadMap, loadState } from "./api.js";
 import { Sprites } from "./sprites.js";
+import * as UI from "./ui.js";
 
 // ---- palette ----
 const C = {
@@ -63,18 +69,12 @@ let lastStaticPaint = 0;
 let US = 1;
 let roadW = ROAD_W;
 let grassPattern = null;
+let dragMoved = false;                // true when a pointer-down turned into a pan
 
 const wx = (x) => x * T.s + T.tx;
 const wy = (y) => y * T.s + T.ty;
 
 // ---- small helpers ----
-function toast(msg) {
-  const el = document.getElementById("toast");
-  el.textContent = msg;
-  el.classList.remove("hidden");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add("hidden"), 2600);
-}
 
 function mulberry32(a) {
   return function () {
@@ -115,12 +115,13 @@ function fitView() {
 }
 
 function initInput() {
-  let dragging = false, lastX = 0, lastY = 0;
+  let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
   const scaleX = () => canvas.width / canvas.clientWidth;
   const scaleY = () => canvas.height / canvas.clientHeight;
 
   canvas.addEventListener("pointerdown", (e) => {
     dragging = true; lastX = e.clientX; lastY = e.clientY;
+    downX = e.clientX; downY = e.clientY; dragMoved = false;
     canvas.classList.add("dragging");
     canvas.setPointerCapture(e.pointerId);
   });
@@ -129,6 +130,8 @@ function initInput() {
     T.tx += (e.clientX - lastX) * scaleX();
     T.ty += (e.clientY - lastY) * scaleY();
     lastX = e.clientX; lastY = e.clientY;
+    // a few px of slop so a click with a shaky hand still counts as a click
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) dragMoved = true;
   });
   const endDrag = (e) => {
     dragging = false;
@@ -222,6 +225,7 @@ function buildSignalHeads() {
       const back = Math.min(setback, len * 0.5);
       signalHeads.push({
         baseId: r.id,
+        nodeId: n.id,                             // to look up the live light state
         sx: b.x - ux * back, sy: b.y - uy * back, // stop-line center on the road axis
         px: -uy, py: ux,                          // unit perpendicular
       });
@@ -529,14 +533,129 @@ function drawStaticLayer() {
   }
 }
 
-// signal heads (dynamic layer — fixed neutral color; the sim PR animates them)
+// ---------------------------------------------------------------------------
+// Dynamic layer: live simulation (vehicles, signal colours, congestion)
+// ---------------------------------------------------------------------------
+const LIGHT_COLOR = ["#ef4444", "#f59e0b", "#22c55e"];   // 0 red, 1 amber, 2 green
+const VEH_LEN = { car: 4.5, bus: 6.5, emergency: 5.0, motorbike: 2.0 };
+
+let simState = null;            // last snapshot from /api/state
+let lightState = {};            // nodeId -> 0|1|2
+let roadState = {};             // roadId -> { congestion, closed }
+let vehIndex = new Map();       // id -> { x, y, h, tx, ty, th, type }
+let simOnline = false;
+
+// Place a vehicle from (road id, metres along it). Roads are straight segments
+// between two nodes — the loader already split curves into waypoint nodes — so
+// this is a plain lerp. Returns null when the road/nodes are unknown.
+function placeOnRoad(roadId, pos, lane = 0, lat = 0) {
+  const r = roadById[roadId];
+  if (!r) return null;
+  const a = nodeById[r.from], b = nodeById[r.to];
+  if (!a || !b) return null;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const t = Math.max(0, Math.min(1, (pos || 0) / (r.length || len)));
+  const ux = dx / len, uy = dy / len;
+
+  // Lateral placement: keep right of the centre line so opposing directions
+  // don't overlap, then step out by the lane index. `lat` is the in-progress
+  // lane-change drift the backend reports, in metres.
+  const base = r.id.endsWith("_r") ? r.id.slice(0, -2) : r.id;
+  const halfW = (roadWOf[base] || roadW) * 0.5;
+  const lanes = Math.max(1, r.lanes || 1);
+  const laneW = halfW / lanes;
+  const off = laneW * (lane + 0.5) + (lat || 0) * US;
+
+  return {
+    x: a.x + dx * t - uy * off,
+    y: a.y + dy * t + ux * off,
+    h: Math.atan2(dy, dx),
+  };
+}
+
+function applyState(s) {
+  simState = s;
+  lightState = {};
+  for (const l of s.lights || []) lightState[l.id] = l.state;
+  roadState = {};
+  for (const r of s.roads || []) roadState[r.id] = r;
+
+  const seen = new Set();
+  for (const v of s.vehicles || []) {
+    const p = placeOnRoad(v.road, v.pos, v.lane || 0, v.lat || 0);
+    if (!p) continue;
+    seen.add(v.id);
+    let e = vehIndex.get(v.id);
+    if (!e) {
+      // new vehicle: appear where it actually is, don't glide in from nowhere
+      e = { x: p.x, y: p.y, h: p.h, tx: p.x, ty: p.y, th: p.h, type: v.type };
+      vehIndex.set(v.id, e);
+    } else {
+      // a road change teleports the target; snap instead of sliding across the map
+      if (Math.hypot(p.x - e.tx, p.y - e.ty) > 60) { e.x = p.x; e.y = p.y; e.h = p.h; }
+      e.tx = p.x; e.ty = p.y; e.th = p.h; e.type = v.type;
+    }
+  }
+  for (const id of vehIndex.keys()) if (!seen.has(id)) vehIndex.delete(id);
+}
+
+// Ease the drawn position toward the last reported one, so 4 Hz polling still
+// looks continuous. k is frame-rate independent.
+function advanceVehicles(dtMs) {
+  const k = 1 - Math.pow(0.0025, dtMs / 1000);
+  for (const e of vehIndex.values()) {
+    e.x += (e.tx - e.x) * k;
+    e.y += (e.ty - e.y) * k;
+    let d = e.th - e.h;                       // shortest way round the circle
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    e.h += d * k;
+  }
+}
+
+function drawVehicles() {
+  if (!vehIndex.size) return;
+  const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
+  const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
+
+  for (const [id, e] of vehIndex) {
+    if (e.x < rMinX - 40 || e.x > rMaxX + 40 || e.y < rMinY - 40 || e.y > rMaxY + 40) continue;
+
+    const lenM = VEH_LEN[e.type] || 4.5;
+    const w = Math.max(3, lenM * US * T.s * 1.6);   // on-screen length in px
+    const h = w * 0.5;
+    const sx = wx(e.x), sy = wy(e.y);
+
+    const spr = e.type === "car"
+      ? Sprites.pick("car", 4, hashInt(id))
+      : Sprites.get(e.type + "-1");
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(e.h);
+    if (spr) {
+      ctx.drawImage(spr.img, -w / 2, -h / 2, w, h);
+    } else {
+      ctx.fillStyle = e.type === "emergency" ? "#ef4444"
+                    : e.type === "bus" ? "#f59e0b" : "#e5e7eb";
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.fillStyle = "rgba(0,0,0,.35)";
+      ctx.fillRect(w * 0.12, -h / 2, w * 0.26, h);   // windscreen hint
+    }
+    ctx.restore();
+  }
+}
+
+// signal heads — coloured by the live light state when the sim is running
 function drawSignals() {
   const dot = Math.max(1.5, 2.2 * US * T.s);
   const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
   const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
-  ctx.fillStyle = C.signalHead;
   for (const h of signalHeads) {
     if (h.sx < rMinX - 30 || h.sx > rMaxX + 30 || h.sy < rMinY - 30 || h.sy > rMaxY + 30) continue;
+    const st = lightState[h.nodeId];
+    ctx.fillStyle = st === undefined ? C.signalHead : LIGHT_COLOR[st] || C.signalHead;
     const off = (roadWOf[h.baseId] || roadW) / 2 + 2.5 * US;
     ctx.beginPath();
     ctx.arc(wx(h.sx + h.px * off), wy(h.sy + h.py * off), dot, 0, Math.PI * 2);
@@ -544,10 +663,34 @@ function drawSignals() {
   }
 }
 
+// Congested / closed roads, drawn over the asphalt.
+function drawRoadStatus() {
+  const ids = Object.keys(roadState);
+  if (!ids.length) return;
+  ctx.lineCap = "round";
+  for (const id of ids) {
+    const r = roadById[id];
+    if (!r) continue;
+    const a = nodeById[r.from], b = nodeById[r.to];
+    if (!a || !b) continue;
+    const st = roadState[id];
+    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
+    ctx.strokeStyle = st.closed
+      ? "rgba(239,68,68,.75)"
+      : `rgba(245,158,11,${Math.min(0.6, 0.15 + st.congestion * 0.5)})`;
+    ctx.lineWidth = Math.max(1.5, (roadWOf[base] || roadW) * T.s * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(wx(a.x), wy(a.y));
+    ctx.lineTo(wx(b.x), wy(b.y));
+    ctx.stroke();
+  }
+}
+
 // ---- render loop + fps meter ----
 let fpsFrames = 0, fpsWorst = 0, fpsWindowStart = 0, lastFrameTs = 0;
 function render() {
   const now = performance.now();
+  const frameDt = lastFrameTs ? Math.min(100, now - lastFrameTs) : 16;
   if (lastFrameTs) {
     const gap = now - lastFrameTs;
     if (gap > fpsWorst) fpsWorst = gap;
@@ -564,11 +707,181 @@ function render() {
   lastFrameTs = now;
 
   if (mapData) {
+    advanceVehicles(frameDt);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawStaticLayer();
+    drawRoadStatus();
     drawSignals();
+    drawVehicles();
   }
   requestAnimationFrame(render);
+}
+
+// ---------------------------------------------------------------------------
+// Simulation polling
+// ---------------------------------------------------------------------------
+const POLL_MS = 250;             // 4 Hz; drawing interpolates between samples
+
+async function poll() {
+  const s = await loadState();
+  if (s) {
+    if (!simOnline) {
+      simOnline = true;
+      UI.log("Simulation connected");
+    }
+    applyState(s);
+  } else if (simOnline) {
+    simOnline = false;
+    simState = null;
+    UI.log("Simulation offline");
+  }
+  UI.update(simState);
+}
+
+function randomNode() {
+  const a = mapData.intersections;
+  return a[(Math.random() * a.length) | 0].id;
+}
+function randomRoad() {
+  return drawRoads[(Math.random() * drawRoads.length) | 0].id;
+}
+
+// ---- click-to-inspect + scenery placement -------------------------------
+let placingProp = null;
+
+function setPlacing(name) {
+  placingProp = name;
+  canvas.classList.toggle("placing", !!name);
+}
+
+// What is under a world point? Priority: vehicle, junction, road, building.
+// Thresholds are in screen pixels converted to world units, so picking feels
+// the same at every zoom level.
+function pickAt(wxp, wyp) {
+  let best = null, bestD = 18 / T.s;
+  for (const [id, e] of vehIndex) {
+    const d = Math.hypot(e.x - wxp, e.y - wyp);
+    if (d < bestD) { bestD = d; best = { kind: "vehicle", id, e }; }
+  }
+  if (best) return best;
+
+  bestD = 16 / T.s;
+  for (const n of mapData.intersections) {
+    const d = Math.hypot(n.x - wxp, n.y - wyp);
+    if (d < bestD) { bestD = d; best = { kind: "junction", id: n.id, node: n }; }
+  }
+  if (best) return best;
+
+  bestD = 20 / T.s;
+  for (const r of drawRoads) {
+    const a = nodeById[r.from], b = nodeById[r.to];
+    if (!a || !b) continue;
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const L2 = vx * vx + vy * vy || 1;
+    let t = ((wxp - a.x) * vx + (wyp - a.y) * vy) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(a.x + vx * t - wxp, a.y + vy * t - wyp);
+    if (d < bestD) { bestD = d; best = { kind: "road", id: r.id, road: r }; }
+  }
+  if (best) return best;
+
+  for (const b of mapData.buildings || []) {
+    const fp = b.footprint || [];
+    if (fp.length < 3) continue;
+    let inside = false;                       // ray cast
+    for (let i = 0, j = fp.length - 1; i < fp.length; j = i++) {
+      const [xi, yi] = fp[i], [xj, yj] = fp[j];
+      if ((yi > wyp) !== (yj > wyp) &&
+          wxp < ((xj - xi) * (wyp - yi)) / (yj - yi || 1e-9) + xi) inside = !inside;
+    }
+    if (inside) return { kind: "building", id: b.name, building: b };
+  }
+  return null;
+}
+
+// Nearest tree/grass patch, for "Delete Decoration".
+function pickProp(wxp, wyp) {
+  let idx = -1, bestD = 20 / T.s;
+  for (let i = 0; i < props.length; i++) {
+    const d = Math.hypot(props[i].x - wxp, props[i].y - wyp);
+    if (d < bestD) { bestD = d; idx = i; }
+  }
+  return idx;
+}
+
+function describe(hit) {
+  if (hit.kind === "vehicle") {
+    const v = (simState?.vehicles || []).find((x) => x.id === hit.id) || {};
+    return [`Vehicle ${hit.id}`, [
+      ["Type", v.type || hit.e.type],
+      ["Speed", `${((v.speed || 0) * 3.6).toFixed(0)} km/h`],
+      ["Road", v.road || "—"],
+      ["Position", `${(v.pos || 0).toFixed(1)} m`],
+    ]];
+  }
+  if (hit.kind === "junction") {
+    const n = hit.node;
+    const deg = drawRoads.filter((r) => r.from === n.id || r.to === n.id).length;
+    return [`Junction ${n.id}`, [
+      ["Signalized", n.signal ? "yes" : "no"],
+      ["Light", lightState[n.id] === undefined ? "—" : ["red", "amber", "green"][lightState[n.id]]],
+      ["Roads", deg],
+      ["Zone", n.zone || "—"],
+    ]];
+  }
+  if (hit.kind === "road") {
+    const r = hit.road, st = roadState[r.id] || {};
+    return [`Road ${r.id}`, [
+      ["From", r.from], ["To", r.to],
+      ["Length", `${(r.length || 0).toFixed(0)} m`],
+      ["Speed", `${r.speed_kmh || "?"} km/h`],
+      ["Lanes", r.lanes ?? "?"],
+      ["Congestion", `${Math.round((st.congestion || 0) * 100)}%`],
+      ["Closed", st.closed ? "yes" : "no"],
+    ]];
+  }
+  const b = hit.building;
+  return [`Building ${b.name}`, [
+    ["Kind", b.kind || "—"], ["Levels", b.levels ?? 1],
+  ]];
+}
+
+function onMapClick(worldX, worldY) {
+  // Scenery placement is client-side and takes priority over everything else.
+  if (placingProp) {
+    props.push({ name: placingProp, x: worldX, y: worldY,
+                 w: placingProp.startsWith("grass") ? 26 : 16 });
+    props.sort((p, q) => p.y - q.y);
+    staticDirty = true;
+    UI.log(`Placed ${placingProp}`);
+    return;
+  }
+
+  const hit = pickAt(worldX, worldY);
+  // An editing tool is armed: hand the click to the UI instead of inspecting.
+  if (UI.handleMapClick(worldX, worldY, hit, pickProp(worldX, worldY))) return;
+
+  if (!hit) { UI.hideSelection(); return; }
+  const [title, rows] = describe(hit);
+  UI.showSelection(title, rows);
+}
+
+// Remove a client-side prop by index (used by "Delete Decoration").
+function removePropAt(i) {
+  if (i < 0 || i >= props.length) return false;
+  props.splice(i, 1);
+  staticDirty = true;
+  return true;
+}
+
+// Re-fetch the map after a server-side edit and rebuild the static layer.
+async function reloadMap() {
+  mapData = await loadMap();
+  const keep = props.slice();       // client-side scenery survives a reload
+  prepareMap();
+  props = keep.concat(props);
+  props.sort((p, q) => p.y - q.y);
+  staticDirty = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,21 +896,41 @@ function showError(msg) {
 
 async function boot() {
   initInput();
+  canvas.addEventListener("click", (e) => {
+    if (dragMoved) return;                       // a pan, not a click
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (canvas.width / r.width);
+    const py = (e.clientY - r.top) * (canvas.height / r.height);
+    onMapClick((px - T.tx) / T.s, (py - T.ty) / T.s);
+  });
+
   try {
     const [data] = await Promise.all([loadMap(), Sprites.load()]);
     mapData = data;
     prepareMap();
-    document.getElementById("hud-stats").textContent =
-      `${mapData.intersections.length.toLocaleString()} nodes · ` +
-      `${drawRoads.length.toLocaleString()} roads · ` +
-      `${(mapData.buildings || []).length.toLocaleString()} buildings · ` +
-      `${props.length.toLocaleString()} trees`;
     document.getElementById("loading").classList.add("hidden");
+
+    UI.init({
+      fitView,
+      poll,
+      randomNode,
+      randomRoad,
+      setPlacing,
+      removePropAt,
+      reloadMap,
+      getState: () => simState,
+      getMap: () => mapData,
+      getDrawRoads: () => drawRoads,
+      getPropCount: () => props.length,
+    });
+
+    poll();
+    setInterval(poll, POLL_MS);
     requestAnimationFrame(render);
   } catch (err) {
     console.error(err);
     showError(String(err.message || err));
-    toast("Failed to load the map");
+    UI.toast("Failed to load the map");
   }
 }
 
