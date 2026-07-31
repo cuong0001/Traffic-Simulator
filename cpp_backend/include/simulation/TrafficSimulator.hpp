@@ -45,15 +45,6 @@ std::vector<std::size_t> find_gridlock_cycle_leaders
 
 class TrafficSimulator {
 public:
-    void solve_junctions(double dt, double sim_time);  // yielding
-    void solve_gridlock(double sim_time);              // forced / rescue
-
-    // Filled by solve_junctions(): for each vehicle told to give way, the
-    // bumper-to-stop-line gap it must not drive past this tick. Applied when
-    // leaders are resolved, so the vehicle BRAKES to the line under IDM
-    // instead of being teleported to a standstill.
-    std::unordered_map<Vehicle*, double> zone_stop_gap_;
-
     // Also filled by solve_junctions(): when a vehicle gives way to something
     // that is genuinely STOPPED in the junction box, the thing it is waiting
     // for. A moving occupant is not recorded -- you are not deadlocked behind
@@ -181,6 +172,12 @@ private:
     void solve_lane_changes(double sim_time);          // MOBIL
     void solve_junctions(double dt, double sim_time);  // yielding
     void solve_gridlock(double sim_time);              // forced / rescue
+
+    // Filled by solve_junctions(): for each vehicle told to give way, the
+    // bumper-to-stop-line gap it must not drive past this tick. Applied when
+    // leaders are resolved, so the vehicle BRAKES to the line under IDM
+    // instead of being teleported to a standstill.
+    std::unordered_map<Vehicle*, double> zone_stop_gap_;
 
     // Solver counters, reported by /api/state for the statistics panel.
     long lane_changes_ = 0;
