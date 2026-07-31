@@ -1,6 +1,28 @@
 cmake_minimum_required(VERSION 3.16)
 project(TrafficSimulator CXX)
 
+# Default to Release when the caller did not ask for a build type.
+#
+# Without this, the command everyone actually types --
+#
+#     cmake -S . -B build -G Ninja
+#
+# leaves CMAKE_BUILD_TYPE empty, which means NO optimisation flags at all: not
+# -O2, not even -O0 explicitly. The binary still runs and every test still
+# passes, so nothing looks wrong; it is only several times slower. That makes
+# every timing anyone measures wrong, and wrong in a direction that flatters
+# whatever they just changed. One benchmark in this project was reported as
+# "13x faster" on exactly that mistake -- the honest figure was 3.7x.
+#
+# Multi-config generators (Visual Studio, Xcode) pick the configuration at
+# build time instead, so leave them alone.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type: Debug, Release, RelWithDebInfo or MinSizeRel" FORCE)
+    message(STATUS "No build type given, defaulting to Release. "
+                   "Use -DCMAKE_BUILD_TYPE=Debug for an unoptimised build.")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
