@@ -356,3 +356,153 @@ TEST_CASE("map_json is served and is non-trivial") {
     CHECK(m.front() == '{');
     CHECK(m.back() == '}');
 }
+
+TEST_CASE("the wait-for graph tells a deadlock from a queue") {
+    // A queue: 0 waits on 1 waits on 2, and 2 waits on nobody. Every vehicle
+    // here is behaving correctly -- the one at the front will move eventually
+    // and the rest follow. The 10-second stopwatch this replaced could not see
+    // that, and grabbed all three.
+    SUBCASE("a chain is not a deadlock, however long anyone has waited") {
+        const std::vector<int> waiting_on{1, 2, -1};
+        const std::vector<double> stuck{90.0, 90.0, 90.0};
+        CHECK(find_gridlock_cycle_leaders(waiting_on, stuck).empty());
+    }
+
+    // A ring: each of the four waits on the next, and the fourth waits on the
+    // first. Nobody will ever move. This is a deadlock at 3 seconds just as
+    // much as at 300, which is exactly why time is the wrong test.
+    SUBCASE("a four-vehicle ring is found, and broken at its longest sufferer") {
+        const std::vector<int> waiting_on{1, 2, 3, 0};
+        const std::vector<double> stuck{4.0, 31.0, 7.0, 2.0};
+        const auto leaders = find_gridlock_cycle_leaders(waiting_on, stuck);
+        REQUIRE(leaders.size() == 1);
+        // One grant is enough: the vehicle that moves frees the one behind it,
+        // and so on around the ring. Pick the one that has suffered longest.
+        CHECK(leaders[0] == 1);
+    }
+
+    SUBCASE("two separate rings are both found") {
+        const std::vector<int> waiting_on{1, 0, 3, 4, 2};
+        const std::vector<double> stuck{5.0, 1.0, 1.0, 9.0, 1.0};
+        const auto leaders = find_gridlock_cycle_leaders(waiting_on, stuck);
+        REQUIRE(leaders.size() == 2);
+        CHECK(leaders[0] == 0);   // ring {0,1}, worst is 0
+        CHECK(leaders[1] == 3);   // ring {2,3,4}, worst is 3
+    }
+
+    SUBCASE("a chain feeding into a ring reports the ring once, not twice") {
+        // 0 -> 1 -> 2 -> 3 -> 1: the tail is a queue behind a genuine deadlock.
+        // The ring must be reported, and reported once.
+        const std::vector<int> waiting_on{1, 2, 3, 1};
+        const std::vector<double> stuck{50.0, 2.0, 8.0, 3.0};
+        const auto leaders = find_gridlock_cycle_leaders(waiting_on, stuck);
+        REQUIRE(leaders.size() == 1);
+        // Vehicle 0 has waited longest but is NOT in the ring; releasing it
+        // would achieve nothing, because what blocks it is the ring ahead.
+        CHECK(leaders[0] == 2);
+    }
+
+    SUBCASE("a vehicle waiting on itself is a deadlock of one") {
+        const std::vector<int> waiting_on{-1, 1};
+        const std::vector<double> stuck{0.0, 12.0};
+        const auto leaders = find_gridlock_cycle_leaders(waiting_on, stuck);
+        REQUIRE(leaders.size() == 1);
+        CHECK(leaders[0] == 1);
+    }
+
+    SUBCASE("nobody waiting on anybody is not a deadlock") {
+        const std::vector<int> waiting_on{-1, -1, -1};
+        const std::vector<double> stuck{0.0, 0.0, 0.0};
+        CHECK(find_gridlock_cycle_leaders(waiting_on, stuck).empty());
+    }
+}
+
+TEST_CASE("splitting a road under a vehicle keeps the vehicle") {
+    TrafficSimulator& sim = fresh();
+    sim.set_target_vehicles(0);
+
+    const auto ids = node_ids(sim);
+    REQUIRE(ids.size() >= 4);
+    const std::string id = sim.spawn_vehicle(ids[0], ids[2], "car");
+    REQUIRE(!id.empty());
+
+    // Let it get well onto its first road.
+    for (int i = 0; i < 200; ++i) sim.tick(0.05);
+
+    Vehicle* before = nullptr;
+    for (const auto& [rid, road] : sim.graph()->edges) {
+        for (Vehicle* v : road->vehicles) {
+            if (v && v->id == id) before = v;
+        }
+    }
+    REQUIRE(before != nullptr);
+    REQUIRE(before->current_road != nullptr);
+
+    // Where it is in the world, and how fast, before the edit.
+    Road* road = before->current_road;
+    const double t = before->position_on_road / road->length;
+    const double wx = road->source->x + (road->target->x - road->source->x) * t;
+    const double wy = road->source->y + (road->target->y - road->source->y) * t;
+    const double speed_before = before->current_speed;
+
+    // Split the road right where the vehicle is standing.
+    const std::string mid = sim.split_road_near(wx, wy);
+    REQUIRE(!mid.empty());
+
+    // The vehicle must still exist. Before PR-10 it was despawned along with
+    // the road it happened to be on, so editing the map deleted traffic.
+    Vehicle* after = nullptr;
+    for (const auto& [rid, r] : sim.graph()->edges) {
+        for (Vehicle* v : r->vehicles) {
+            if (v && v->id == id) after = v;
+        }
+    }
+    REQUIRE(after != nullptr);
+    REQUIRE(after->current_road != nullptr);
+
+    // And it must be in the same place in the world, not teleported to the
+    // start of some road.
+    Road* nr = after->current_road;
+    const double nt = after->position_on_road / nr->length;
+    const double nx = nr->source->x + (nr->target->x - nr->source->x) * nt;
+    const double ny = nr->source->y + (nr->target->y - nr->source->y) * nt;
+    CHECK(std::hypot(nx - wx, ny - wy) < 2.0);      // metres
+
+    // Motion state survives too: the driver should not feel the edit.
+    CHECK(after->current_speed == doctest::Approx(speed_before));
+
+    // The old route ran along a road that no longer exists, so it must have
+    // been reduced and flagged for replanning rather than left dangling.
+    CHECK(after->get_route().size() == 1);
+    CHECK(after->get_route()[0] == nr);
+
+    // The simulator keeps running afterwards without tripping over it.
+    for (int i = 0; i < 200; ++i) sim.tick(0.05);
+    CHECK(worst_gap(sim) > -0.5);
+}
+
+TEST_CASE("a vehicle reports why it is not moving") {
+    TrafficSimulator& sim = fresh();
+    sim.set_target_vehicles(0);
+
+    const auto ids = node_ids(sim);
+    const std::string id = sim.spawn_vehicle(ids[0], ids[2], "car");
+    REQUIRE(!id.empty());
+
+    for (int i = 0; i < 100; ++i) sim.tick(0.05);
+
+    // state is reported per vehicle so the UI can say "waiting at a light"
+    // instead of showing a stopped car and leaving the viewer to guess.
+    const std::string state = sim.state_json();
+    CHECK(state.find("\"state\":") != std::string::npos);
+
+    Vehicle* v = nullptr;
+    for (const auto& [rid, road] : sim.graph()->edges) {
+        for (Vehicle* w : road->vehicles) {
+            if (w && w->id == id) v = w;
+        }
+    }
+    REQUIRE(v != nullptr);
+    // On an empty map with no signals it should simply be driving.
+    CHECK(v->state() == Vehicle::State::Moving);
+}
