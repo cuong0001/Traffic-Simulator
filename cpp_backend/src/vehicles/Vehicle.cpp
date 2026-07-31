@@ -144,117 +144,7 @@ void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersecti
     }
 }
 
-void Vehicle::step_by_step(double dt) {
-    if (is_reached_destination || !current_road) return;
 
-    // React to congestion & IDM car-following calculation
-    react_to_congestion();
-
-    // Apply the IDM acceleration.
-    current_speed = std::max(0.0, current_speed + accel * dt);
-    double step = current_speed * dt;
-
-    // Never move through the vehicle in front. IDM is a comfort model: it does
-    // not guarantee this when the leader brakes hard or dt is large.
-    const double max_step = std::max(0.0, last_gap - kContactMargin);
-    if (step > max_step) {
-        step = max_step;
-        current_speed = dt > 1e-9 ? step / dt : 0.0;
-    }
-    position_on_road += step;
-
-    // Ease the sideways drift of a lane change.
-    if (current_speed > 0.5) {
-        double delta = target_lateral_offset - lateral_offset;
-        double max_step = kLateralSpeed * dt;
-        if (std::abs(delta) <= max_step) lateral_offset = target_lateral_offset;
-        else lateral_offset += (delta > 0 ? max_step : -max_step);
-    }
-
-    // Stuck tracking: how long have we been standing still?
-    if (current_speed < 0.3) stuck_time += dt;
-    else if (current_speed > 1.0) stuck_time = 0.0;
-
-    // Hand over to the next road once this one runs out.
-    if (position_on_road >= current_road->length) {
-        double overshoot = position_on_road - current_road->length;
-        
-        travel_history.push_back(current_road->id);
-        current_road->remove_vehicle(this);
-
-        route_index++;
-
-        if (route_index < static_cast<int>(route.size())) {
-            current_road = route[route_index];
-            position_on_road = std::min(overshoot, current_road->length);
-            current_road->add_vehicle(this);
-        } else {
-            // Arrived at the destination.
-            is_reached_destination = true;
-            current_road = nullptr;
-            position_on_road = 0.0;
-            current_speed = 0.0;
-            accel = 0.0;
-        }
-    }
-}
-
-bool Vehicle::react_to_congestion() {
-    if (!current_road) return false;
-
-    bool is_congested = false;
-    double v0 = desired_speed_on(*current_road);
-
-    // 1. The vehicle ahead and the distance to it.
-    // TODO: this is lane-blind; the lane-aware search lives in TrafficSimulator.
-    std::pair<Vehicle*, double> lead = current_road->get_lead_vehicle(this);
-    // get_lead_vehicle() measures position to position; IDM needs bumper to bumper.
-    double gap = lead.first ? lead.second - lead.first->length_meters() : 1e9;
-    double v_lead = lead.first ? lead.first->get_current_speed() : 0.0;
-
-    bool red_ahead = false;
-
-    // 2. Traffic light ahead, including the amber dilemma zone.
-    if (!ignores_lights()) {
-        Intersection* next_node = current_road->target;
-        if (next_node && next_node->light_system) {
-            double dist_to_stop = current_road->length - position_on_road;
-            if (dist_to_stop < kLightLookahead) {
-                unsigned int state = next_node->light_system->get_state(); // 0: Red, 1: Yellow, 2: Green
-                bool must_stop = (state == 0);
-
-                // Amber: stop only if we can still brake comfortably.
-                if (state == 1) {
-                    double d = std::max(0.5, dist_to_stop);
-                    must_stop = (current_speed * current_speed) / (2.0 * d) <= kAmberComfortDecel;
-                }
-
-                if (must_stop) {
-                    double stop_gap = dist_to_stop - length_meters() * 0.5;
-                    if (stop_gap > -1.0) {  // not past the stop line yet
-                        red_ahead = true;
-                        if (stop_gap < gap) {
-                            gap = std::max(0.05, stop_gap);
-                            v_lead = 0.0;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. IDM acceleration, clamped to what this vehicle can actually do.
-    accel = idm_accel(current_speed, v0, v_lead, gap);
-    accel = std::clamp(accel, -max_decel, max_accel);
-
-    last_gap = gap;   // step_by_step() uses this so we never move through the leader
-
-    if (gap < 15.0 || red_ahead) {
-        is_congested = true;
-    }
-
-    return is_congested;
-}
 
 void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
     if (!graph || !target) return;
@@ -415,16 +305,39 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
     // ---- 1. desired speed, capped by a red light ahead --------------------
     const double v0 = desired_speed_on(*current_road);
     double effective_gap = gap;
-    const double dist_to_end = current_road->length - position_on_road;
 
     Intersection* next_node = current_road->target;
     const bool forced = is_forced(sim_time);
     if (!ignores_lights() && !forced && next_node && next_node->is_signalized &&
-        next_node->light_system && dist_to_end < kLightLookahead) {
-        const unsigned int light = next_node->light_system->get_state();
-        if (light != 2) {  // red or amber: treat the stop line as a standing car
-            effective_gap = std::min(effective_gap, std::max(0.1, dist_to_end));
-            lead = nullptr;  // the "obstacle" is not moving
+        current_road->signal_group >= 0) {
+        // The stop line sits a few metres BEFORE the junction, so a vehicle
+        // held on red waits at the line instead of standing in the box. The
+        // colour is the one shown to THIS approach's phase group: the crossing
+        // street is showing the opposite colour at the same moment.
+        const double dist_to_stop = current_road->stop_line_position() - position_on_road;
+        if (dist_to_stop < kLightLookahead) {
+            const unsigned int light =
+                next_node->signal_state_for(current_road->signal_group, sim_time);
+            bool must_stop = (light == TrafficLight::Red);
+
+            // Amber is a decision, not a colour. Treating it as red is what
+            // puts a queue at every junction: a vehicle already too close to
+            // brake comfortably should carry on through, as a driver would.
+            // kAmberComfortDecel is the threshold react_to_congestion() has
+            // always used for exactly this call.
+            if (light == TrafficLight::Amber) {
+                const double d = std::max(0.5, dist_to_stop);
+                must_stop =
+                    (current_speed * current_speed) / (2.0 * d) <= kAmberComfortDecel;
+            }
+
+            if (must_stop) {
+                const double stop_gap = dist_to_stop - length_meters() * 0.5;
+                if (stop_gap > -1.0) {  // not already past the line
+                    effective_gap = std::min(effective_gap, std::max(0.1, stop_gap));
+                    lead = nullptr;  // the "obstacle" is not moving
+                }
+            }
         }
     }
 
