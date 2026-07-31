@@ -238,10 +238,18 @@ function buildSignalHeads() {
       if (len < 1e-6) continue;
       const ux = dx / len, uy = dy / len;
       const back = Math.min(setback, len * 0.5);
+      // The server reports one light per APPROACH, keyed by the directed road
+      // id. A drawn road carries both directions of a two-way street: arriving
+      // at this junction along it is the forward road when the junction is its
+      // "to" end, and the "_r" twin when it is the "from" end.
+      const signalId = r.to === n.id ? r.id : r.id + "_r";
       signalHeads.push({
         baseId: r.id,
-        nodeId: n.id,                             // to look up the live light state
-        sx: b.x - ux * back, sy: b.y - uy * back, // stop-line center on the road axis
+        signalId,                                 // -> lightState key
+        nodeId: n.id,
+        ax: a.x, ay: a.y, bx: b.x, by: b.y,       // approach axis, for the setback
+        sx: b.x - ux * back, sy: b.y - uy * back, // fallback stop line
+        ux, uy,
         px: -uy, py: ux,                          // unit perpendicular
       });
     }
@@ -555,7 +563,14 @@ const LIGHT_COLOR = ["#ef4444", "#f59e0b", "#22c55e"];   // 0 red, 1 amber, 2 gr
 const VEH_LEN = { car: 4.5, bus: 6.5, emergency: 5.0, motorbike: 2.0 };
 
 let simState = null;            // last snapshot from /api/state
-let lightState = {};            // nodeId -> 0|1|2
+let lightState = {};
+let lightSetback = {};   // road id -> metres the stop line sits before the junction
+// The vehicle whose route is highlighted, and the road ids of that route.
+// Fetched once per selection from /api/vehicle/detail rather than carried in
+// /api/state: a route can be 60+ roads, and multiplying that by every vehicle
+// on screen would dwarf the rest of the payload for data nobody looks at.
+let routeVehicleId = null;
+let routeRoadIds = [];            // nodeId -> 0|1|2
 let roadState = {};             // roadId -> { congestion, closed }
 let vehIndex = new Map();       // id -> { x, y, h, tx, ty, th, type }
 let simOnline = false;
@@ -592,7 +607,10 @@ function placeOnRoad(roadId, pos, lane = 0, lat = 0) {
 function applyState(s) {
   simState = s;
   lightState = {};
-  for (const l of s.lights || []) lightState[l.id] = l.state;
+  for (const l of s.lights || []) {
+    lightState[l.id] = l.state;
+    if (l.d !== undefined) lightSetback[l.id] = l.d;
+  }
   roadState = {};
   for (const r of s.roads || []) roadState[r.id] = r;
 
@@ -613,6 +631,10 @@ function applyState(s) {
     }
   }
   for (const id of vehIndex.keys()) if (!seen.has(id)) vehIndex.delete(id);
+
+  // The highlighted vehicle finished its trip or was removed: drop the path
+  // rather than leave a route glowing under traffic that is no longer there.
+  if (routeVehicleId && !seen.has(routeVehicleId)) clearRouteHighlight();
 }
 
 // Ease the drawn position toward the last reported one, so 4 Hz polling still
@@ -669,11 +691,21 @@ function drawSignals() {
   const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
   for (const h of signalHeads) {
     if (h.sx < rMinX - 30 || h.sx > rMaxX + 30 || h.sy < rMinY - 30 || h.sy > rMaxY + 30) continue;
-    const st = lightState[h.nodeId];
+    const st = lightState[h.signalId];
     ctx.fillStyle = st === undefined ? C.signalHead : LIGHT_COLOR[st] || C.signalHead;
     const off = (roadWOf[h.baseId] || roadW) / 2 + 2.5 * US;
+    // The stop line is where the SERVER says it is, so the head sits exactly
+    // where vehicles are actually braking. Falls back to the geometric guess
+    // until the first state arrives.
+    const d = lightSetback[h.signalId];
+    let sx = h.sx, sy = h.sy;
+    if (d !== undefined) {
+      const back = Math.min(d * US, Math.hypot(h.bx - h.ax, h.by - h.ay) * 0.5);
+      sx = h.bx - h.ux * back;
+      sy = h.by - h.uy * back;
+    }
     ctx.beginPath();
-    ctx.arc(wx(h.sx + h.px * off), wy(h.sy + h.py * off), dot, 0, Math.PI * 2);
+    ctx.arc(wx(sx + h.px * off), wy(sy + h.py * off), dot, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -694,6 +726,26 @@ function drawRoadStatus() {
       ? "rgba(239,68,68,.75)"
       : `rgba(245,158,11,${Math.min(0.6, 0.15 + st.congestion * 0.5)})`;
     ctx.lineWidth = Math.max(1.5, (roadWOf[base] || roadW) * T.s * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(wx(a.x), wy(a.y));
+    ctx.lineTo(wx(b.x), wy(b.y));
+    ctx.stroke();
+  }
+}
+
+// The selected vehicle's remaining route, drawn under the traffic so it reads
+// as a path on the map rather than something floating above it.
+function drawRouteHighlight() {
+  if (!routeRoadIds.length) return;
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(56,189,248,.55)";
+  for (const id of routeRoadIds) {
+    const r = roadById[id];
+    if (!r) continue;
+    const a = nodeById[r.from], b = nodeById[r.to];
+    if (!a || !b) continue;
+    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
+    ctx.lineWidth = Math.max(2, (roadWOf[base] || roadW) * T.s * 0.7);
     ctx.beginPath();
     ctx.moveTo(wx(a.x), wy(a.y));
     ctx.lineTo(wx(b.x), wy(b.y));
@@ -725,6 +777,7 @@ function render() {
     advanceVehicles(frameDt);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawStaticLayer();
+    drawRouteHighlight();
     drawRoadStatus();
     drawSignals();
     drawVehicles();
@@ -832,6 +885,8 @@ function describe(hit) {
       ["Speed", `${((v.speed || 0) * 3.6).toFixed(0)} km/h`],
       ["Road", v.road || "—"],
       ["Position", `${(v.pos || 0).toFixed(1)} m`],
+      ["Route", routeVehicleId === hit.id && routeRoadIds.length
+                  ? `${routeRoadIds.length} roads left` : "—"],
     ]];
   }
   if (hit.kind === "junction") {
@@ -876,9 +931,32 @@ function onMapClick(worldX, worldY) {
   // An editing tool is armed: hand the click to the UI instead of inspecting.
   if (UI.handleMapClick(worldX, worldY, hit, pickProp(worldX, worldY))) return;
 
-  if (!hit) { UI.hideSelection(); return; }
+  if (!hit) { clearRouteHighlight(); UI.hideSelection(); return; }
   const [title, rows] = describe(hit);
   UI.showSelection(title, rows);
+
+  if (hit.kind === "vehicle") selectVehicleRoute(hit.id);
+  else clearRouteHighlight();
+}
+
+// Ask the server for the selected vehicle's remaining route and highlight it.
+// Fire-and-forget: if the vehicle arrives before the reply lands, the ids
+// simply no longer match any road and nothing is drawn.
+async function selectVehicleRoute(id) {
+  routeVehicleId = id;
+  routeRoadIds = [];
+  try {
+    const d = await Sim.vehicleDetail(id);
+    if (routeVehicleId !== id) return;      // selection changed while waiting
+    routeRoadIds = Array.isArray(d?.route) ? d.route : [];
+  } catch {
+    routeRoadIds = [];
+  }
+}
+
+function clearRouteHighlight() {
+  routeVehicleId = null;
+  routeRoadIds = [];
 }
 
 // Remove a client-side prop by index (used by "Delete Decoration").
