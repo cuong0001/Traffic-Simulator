@@ -116,6 +116,8 @@ function fitView() {
   staticDirty = true;
 }
 
+let hoverWorld = null;          // cursor in world units, for the add-road preview
+
 function initInput() {
   let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
   const scaleX = () => canvas.width / canvas.clientWidth;
@@ -128,6 +130,13 @@ function initInput() {
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
+    // Track the cursor in world units whether or not a drag is in progress:
+    // the add-road preview needs it every frame, not only while panning.
+    const r0 = canvas.getBoundingClientRect();
+    hoverWorld = {
+      x: ((e.clientX - r0.left) * scaleX() - T.tx) / T.s,
+      y: ((e.clientY - r0.top) * scaleY() - T.ty) / T.s,
+    };
     if (!dragging) return;
     T.tx += (e.clientX - lastX) * scaleX();
     T.ty += (e.clientY - lastY) * scaleY();
@@ -730,6 +739,12 @@ function drawRoadStatus() {
     ctx.moveTo(wx(a.x), wy(a.y));
     ctx.lineTo(wx(b.x), wy(b.y));
     ctx.stroke();
+    // One barrier per physical street, not one per direction, or a two-way
+    // closure draws the same marker twice in the same place.
+    if (st.closed && !id.endsWith("_r")) {
+      drawBarrier(wx((a.x + b.x) / 2), wy((a.y + b.y) / 2),
+                  Math.atan2(b.y - a.y, b.x - a.x));
+    }
   }
 }
 
@@ -755,6 +770,115 @@ function drawRouteHighlight() {
 
 // ---- render loop + fps meter ----
 let fpsFrames = 0, fpsWorst = 0, fpsWindowStart = 0, lastFrameTs = 0;
+// ---------------------------------------------------------------------------
+// Map-editing feedback and closed-road markers
+// ---------------------------------------------------------------------------
+
+// A barrier across a closed road, drawn at its midpoint. Recolouring the road
+// is not enough on a dense map: at district zoom a red line among orange
+// congestion reads as "busy", not "shut".
+function drawBarrier(x, y, angle) {
+  const s = Math.max(0.35, T.s);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.fillStyle = "#f2efe2";
+  ctx.fillRect(-7 * s, -2.6 * s, 14 * s, 5.2 * s);
+  ctx.fillStyle = "rgba(239,68,68,.95)";
+  for (let i = -7; i < 7; i += 3.5) ctx.fillRect(i * s, -2.6 * s, 1.8 * s, 5.2 * s);
+  ctx.restore();
+}
+
+function drawZoneLabels() {
+  const zones = (mapData && mapData.zones) || [];
+  if (!zones.length) return;
+  const size = Math.max(9, 13 * T.s);
+  ctx.font = `700 ${size}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.lineWidth = Math.max(2, size * 0.28);
+  for (const z of zones) {
+    if (!z.name) continue;
+    const sx = wx(z.x + z.w / 2), sy = wy(z.y + z.h) + 14 * T.s;
+    ctx.strokeStyle = "rgba(255,255,255,.85)";   // halo, so it reads over roads
+    ctx.strokeText(z.name, sx, sy);
+    ctx.fillStyle = "rgba(30,41,59,.9)";
+    ctx.fillText(z.name, sx, sy);
+  }
+}
+
+const ENDPOINT_COLORS = { junction: "#4f8fd0", road: "#e8a33d", free: "#5cb85c" };
+
+function drawEndpointMarker(e) {
+  const sx = wx(e.x), sy = wy(e.y);
+  ctx.beginPath();
+  ctx.arc(sx, sy, 7, 0, Math.PI * 2);
+  ctx.fillStyle = ENDPOINT_COLORS[e.kind] || "#888";
+  ctx.globalAlpha = 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+  if (!e.label) return;
+  ctx.font = "bold 12px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(0,0,0,.75)";
+  ctx.strokeText(e.label, sx + 11, sy - 8);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(e.label, sx + 11, sy - 8);
+}
+
+// Turn a world point into the endpoint the server will resolve it to, using the
+// same priority the server uses: junction, then a point on a road (which splits
+// it), then open ground (which creates a junction). Showing the wrong guess
+// would be worse than showing nothing, so this mirrors pickAt().
+function previewEndpoint(p) {
+  const hit = pickAt(p.x, p.y);
+  if (hit && hit.kind === "junction") {
+    return { kind: "junction", x: hit.node.x, y: hit.node.y,
+             label: hit.node.name || hit.id };
+  }
+  if (hit && hit.kind === "road") {
+    return { kind: "road", x: p.x, y: p.y, label: "split " + hit.id };
+  }
+  return { kind: "free", x: p.x, y: p.y, label: "new junction" };
+}
+
+function drawAddRoadPreview() {
+  if (!UI.isAddingRoad() || !mapData) return;
+  const first = UI.pendingRoadStart();
+  const cur = hoverWorld ? previewEndpoint(hoverWorld) : null;
+  if (!first && !cur) return;
+
+  // The stored first endpoint has coordinates only when it was free ground or
+  // a road split; a junction was stored by id, so look its position back up.
+  let a = null;
+  if (first) {
+    a = first.kind === "junction"
+      ? (() => { const n = nodeById[first.id]; return n && { kind: "junction", x: n.x, y: n.y, label: n.name || first.id }; })()
+      : { kind: first.kind, x: first.x, y: first.y,
+          label: first.kind === "road" ? "split here" : "new junction" };
+  }
+
+  if (a && cur) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([8, 6]);
+    ctx.moveTo(wx(a.x), wy(a.y));
+    ctx.lineTo(wx(cur.x), wy(cur.y));
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#ffffff";
+    ctx.globalAlpha = 0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (a) drawEndpointMarker(a);
+  if (cur) drawEndpointMarker(cur);
+}
+
 function render() {
   const now = performance.now();
   const frameDt = lastFrameTs ? Math.min(100, now - lastFrameTs) : 16;
@@ -781,6 +905,8 @@ function render() {
     drawRoadStatus();
     drawSignals();
     drawVehicles();
+    drawZoneLabels();
+    drawAddRoadPreview();
   }
   requestAnimationFrame(render);
 }

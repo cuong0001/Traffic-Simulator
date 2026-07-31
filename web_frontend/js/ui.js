@@ -123,6 +123,16 @@ function disarm() {
 // places the endpoint instead of throwing the camera back to the whole city.
 export function isArmed() { return tool !== null; }
 
+// True only while the Add Road tool is armed. The canvas needs this separately
+// from isArmed(), which is true for every tool -- otherwise arming "add
+// building" would draw a road endpoint marker under the cursor.
+export function isAddingRoad() { return tool === "add-road"; }
+
+// The first endpoint of an in-progress "Add Road", or null. The canvas asks so
+// it can draw the rubber-band line to the cursor; without it the user picks the
+// second point blind and only finds out what they connected afterwards.
+export function pendingRoadStart() { return tool === "add-road" ? roadFirst : null; }
+
 // Routed from app.js on every canvas click. Returns true when the click was
 // consumed by a tool, so the inspector stays out of the way.
 export function handleMapClick(x, y, hit, propIndex) {
