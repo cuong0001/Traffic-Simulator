@@ -801,9 +801,16 @@ namespace {
     constexpr double kMobilObstruction = 0.4;      // only change if actually held up
 
     // ---- junction yielding (M6) ---------------------------------------------
-    constexpr double kJunctionZone = 12.0;   // m before the box where we look
+    constexpr double kJunctionZone = 6.0;    // m: conflict radius around the node
     constexpr double kZoneApproach = 26.0;   // m at which yielding starts
-    constexpr double kImpatience = 6.0;      // s of waiting before we stop yielding
+    constexpr double kZoneHorizon = 4.0;     // s: conflicts farther out are ignored
+    constexpr double kZoneTieMargin = 0.3;   // s: near-simultaneous arrival window
+    constexpr double kZoneBonusCap = 3.0;    // s of head start impatience may claim
+    constexpr double kMovingSpeed = 0.5;     // m/s above which a vehicle is moving
+    constexpr double kZoneMinSpeed = 1.5;    // m/s floor when estimating arrival
+    constexpr double kIgnoreBlockerAfter = 15.0;  // s stuck -> stop giving way
+    
+
 
     // ---- gridlock breaking (M7) ---------------------------------------------
     constexpr double kStuckForced = 10.0;    // s stopped -> grant right of way
