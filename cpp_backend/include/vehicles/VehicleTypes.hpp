@@ -75,7 +75,7 @@ class VehicleFactory {
 public:
     static std::unique_ptr<Vehicle> create(const std::string& type,
                                            const std::string& id,
-                                           double max_speed = 60.0,
+                                           double max_speed = 16.7,
                                            double max_accel = 3.0,
                                            double max_decel = 4.5);
 
