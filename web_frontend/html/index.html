@@ -1,33 +1,375 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Urban Traffic Simulator — Map</title>
-  <link rel="stylesheet" href="../css/map.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Urban Traffic Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/ui.css">
 </head>
 <body>
+<main id="stage">
   <canvas id="map"></canvas>
 
-  <!-- Top-left title + live map stats -->
-  <header id="hud">
-    <div class="hud-title">Urban Traffic Simulator</div>
-    <div id="hud-stats" class="hud-stats">loading map…</div>
-  </header>
+  <!-- ======= Top menu bar ======= -->
+  <nav id="menubar">
+    <span class="brand">URBAN TRAFFIC</span>
 
-  <!-- Bottom-left controls hint -->
-  <div id="hint">drag to pan · scroll to zoom · <kbd>F</kbd> fit</div>
+    <div class="menu-item">Files
+      <ul class="dropdown">
+        <li><button data-panel="files-open" type="button">Open</button></li>
+        <li><button id="menu-save" type="button">Save</button></li>
+        <li><button data-panel="files-save" type="button">Save As</button></li>
+      </ul>
+    </div>
 
-  <!-- Right sidebar: simulation controls arrive in later PRs. Hidden for now
-       so the chrome is in place without looking broken. -->
-  <aside id="sidebar" class="hidden" aria-hidden="true">
-    <!-- TODO(sim-PR): spawn form, event buttons, pause/speed, stats panel, chart -->
+    <div class="menu-item">Map
+      <ul class="dropdown">
+        <li><button data-panel="map-details" type="button">Map Details</button></li>
+        <li><button data-panel="adjust" type="button">Adjust Simulation</button></li>
+        <li class="dd-sep"></li>
+        <li><button data-panel="add-building" type="button">Add Building</button></li>
+        <li><button data-panel="add-road" type="button">Add Road</button></li>
+        <li><button data-panel="add-vehicle" type="button">Add Vehicle</button></li>
+        <li><button data-panel="add-light" type="button">Add Traffic Lights</button></li>
+        <li class="dd-sep"></li>
+        <li><button data-panel="del-road" type="button">Delete Roads</button></li>
+        <li><button data-panel="del-building" type="button">Delete Buildings</button></li>
+        <li><button data-panel="del-light" type="button">Delete Traffic Lights</button></li>
+        <li><button data-panel="del-vehicle" type="button">Delete Vehicles</button></li>
+        <li><button data-panel="del-deco" type="button">Delete Decoration</button></li>
+        <li class="dd-sep"></li>
+        <li><button data-panel="mod-vehicle" type="button">Modify Vehicles</button></li>
+        <li><button data-panel="mod-road" type="button">Modify Roads</button></li>
+        <li><button data-panel="mod-junction" type="button">Modify Intersections</button></li>
+      </ul>
+    </div>
+
+    <div class="menu-item">Incident
+      <ul class="dropdown">
+        <li><button data-panel="incident-fire" type="button">Fire</button></li>
+        <li><button data-panel="incident-medical" type="button">Medical Emergency</button></li>
+        <li><button data-panel="incident-robbery" type="button">Robbery</button></li>
+        <li><button data-panel="incident-smash" type="button">Smash Road</button></li>
+      </ul>
+    </div>
+
+    <div class="menu-item">Decorations
+      <ul class="dropdown">
+        <li><button data-panel="deco-tree" type="button">Tree</button></li>
+        <li><button data-panel="deco-grass" type="button">Grass</button></li>
+      </ul>
+    </div>
+
+    <div class="menu-item">View
+      <ul class="dropdown">
+        <li><button id="toggle-stats" type="button">Statistics</button></li>
+        <li><button id="toggle-eventlog" type="button">Event Log</button></li>
+        <li><button id="toggle-fps" type="button">FPS Meter</button></li>
+        <li><button id="menu-fit" type="button">Fit View</button></li>
+      </ul>
+    </div>
+
+    <div class="mb-spacer"></div>
+    <span class="mb-chip"><span class="k">Time</span> <span id="hud-time">--:--</span></span>
+    <span class="mb-chip"><span class="k">Veh</span> <span id="hud-vehicles">0</span></span>
+    <span class="mb-chip"><span class="k">Jam</span> <span id="hud-congestion">0%</span></span>
+    <button id="btn-pause" type="button">&#10074;&#10074; Pause</button>
+  </nav>
+
+  <!-- ======= Slide-in right sidebar ======= -->
+  <aside id="right-sidebar">
+    <div class="sidebar-header">
+      <button class="close-btn" id="sidebar-close" type="button">&times;</button>
+      <span id="sidebar-title">Tools</span>
+    </div>
+    <div id="sidebar-content">
+
+      <div class="sb-panel" id="panel-map-details">
+        <div class="detail-grid" id="map-details-body"></div>
+      </div>
+
+      <div class="sb-panel" id="panel-adjust">
+        <div class="sb-row">
+          <span class="lbl">Speed</span>
+          <input id="speed-slider" type="range" min="-1" max="1" step="0.01" value="0">
+          <span id="speed-val">1.0x</span>
+        </div>
+        <div class="sb-row">
+          <span class="lbl">Spawn/s</span>
+          <input id="spawnrate-slider" type="range" min="0" max="10" step="0.5" value="2">
+          <span id="spawnrate-val">2.0/s</span>
+        </div>
+        <div class="sb-row" title="0 = unlimited: keep spawning at the spawn rate with no cap">
+          <span class="lbl">Max veh</span>
+          <input id="target-input" type="number" min="0" max="100000" step="10" value="28">
+          <button id="target-apply" type="button">Set</button>
+        </div>
+        <div class="sb-row">
+          <span class="lbl">Routing</span>
+          <select id="algo-select" aria-label="Routing algorithm">
+            <option value="astar">A*</option>
+            <option value="dijkstra">Dijkstra</option>
+            <option value="bfs">BFS</option>
+          </select>
+        </div>
+        <div class="sb-row">
+          <label class="chk"><input type="checkbox" id="chk-random" checked> Random events</label>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-add-vehicle">
+        <div class="list-container" id="vehicle-list">
+          <div class="selectable-item" data-vtype="car">
+            <img src="../assets/sprites/car-blue.png" alt=""><span>Car</span>
+          </div>
+          <div class="selectable-item" data-vtype="bus">
+            <img src="../assets/sprites/firetruck-yes.png" alt=""><span>Bus</span>
+          </div>
+          <div class="selectable-item" data-vtype="emergency">
+            <img src="../assets/sprites/ambulance-yes.png" alt=""><span>Emergency</span>
+          </div>
+        </div>
+        <div class="form-container hidden" id="vehicle-form">
+          <img id="vehicle-form-img" src="" alt="Preview">
+          <p id="vehicle-form-name"></p>
+          <div class="sb-row">
+            <span class="lbl">Count</span>
+            <input id="vehicle-count" type="number" min="1" max="100" value="1">
+          </div>
+          <button id="vehicle-add" type="button">Add</button>
+          <p class="back-action" id="vehicle-back">&larr; back to list</p>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-add-building">
+        <p class="sb-hint">Pick a type, then click the map to place it. Esc to stop.</p>
+        <div class="list-container">
+          <div class="selectable-item" data-bkind="house" data-bname="House">
+            <img src="../assets/sprites/building-1.png" alt=""><span>House</span>
+          </div>
+          <div class="selectable-item" data-bkind="commercial" data-bname="Company">
+            <img src="../assets/sprites/building-2.png" alt=""><span>Company</span>
+          </div>
+          <div class="selectable-item" data-bkind="industrial" data-bname="Warehouse">
+            <img src="../assets/sprites/building-3.png" alt=""><span>Warehouse</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-deco-tree">
+        <p class="sb-hint">Pick a tree, then click the map to plant it. Esc to stop.</p>
+        <div class="list-container">
+          <div class="selectable-item" data-prop="tree-1">
+            <img src="../assets/sprites/tree-1.png" alt=""><span>Tree 1</span>
+          </div>
+          <div class="selectable-item" data-prop="tree-2">
+            <img src="../assets/sprites/tree-2.png" alt=""><span>Tree 2</span>
+          </div>
+          <div class="selectable-item" data-prop="tree-3">
+            <img src="../assets/sprites/tree-3.png" alt=""><span>Tree 3</span>
+          </div>
+        </div>
+        <p class="sb-hint">Trees are client-side scenery: they are placed in the
+        renderer and are not saved with the map.</p>
+      </div>
+
+      <div class="sb-panel" id="panel-deco-grass">
+        <p class="sb-hint">Click the map to place a grass patch. Esc to stop.</p>
+        <div class="list-container">
+          <div class="selectable-item" data-prop="grass-1">
+            <img src="../assets/sprites/grass-1.png" alt=""><span>Grass patch</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-incident-fire">
+        <p class="sb-hint">A fire blocks traffic: an accident is placed on the
+        target road and two fire units are dispatched.</p>
+        <p class="sb-target">Target: <b id="fire-target">random road</b></p>
+        <button class="warn" id="fire-go" type="button">Start Fire</button>
+      </div>
+
+      <div class="sb-panel" id="panel-incident-medical">
+        <p class="sb-hint">Dispatches an ambulance (ignores traffic lights,
+        cuts through congestion) to a random destination.</p>
+        <button class="warn" id="medical-go" type="button">Dispatch Ambulance</button>
+      </div>
+
+      <div class="sb-panel" id="panel-incident-robbery">
+        <p class="sb-hint">A robbery causes a local jam on the target road and
+        two police units respond.</p>
+        <p class="sb-target">Target: <b id="robbery-target">random road</b></p>
+        <button class="warn" id="robbery-go" type="button">Trigger Robbery</button>
+      </div>
+
+      <div class="sb-panel" id="panel-incident-smash">
+        <p class="sb-hint">Smashes the target road: it closes for the chosen
+        duration and traffic reroutes around it.</p>
+        <p class="sb-target">Target: <b id="smash-target">random road</b></p>
+        <div class="sb-row">
+          <span class="lbl">Seconds</span>
+          <input id="smash-duration" type="number" min="10" max="3600" value="120">
+        </div>
+        <button class="warn" id="smash-go" type="button">Smash Road</button>
+      </div>
+
+      <div class="sb-panel" id="panel-files-open">
+        <p class="sb-hint">Maps in the data/ folder. Loading replaces the
+        current city (all vehicles despawn).</p>
+        <div id="maps-list"></div>
+      </div>
+
+      <div class="sb-panel" id="panel-files-save">
+        <p class="sb-hint">Saves the live map — including roads, buildings and
+        lights you added — as data/&lt;name&gt;.geojson.</p>
+        <div class="sb-row">
+          <span class="lbl">Name</span>
+          <input id="save-name" type="text" placeholder="my-city">
+        </div>
+        <button id="save-go" type="button">Save Map</button>
+      </div>
+
+      <div class="sb-panel" id="panel-add-road">
+        <p class="sb-hint">Click two points: a junction, a spot on a road
+        (splits it there), or empty ground (creates a junction). Roads to a
+        brand-new dead end are always two-way. Esc to stop.</p>
+        <div class="sb-row">
+          <span class="lbl">Speed</span>
+          <input id="addroad-speed" type="number" min="10" max="120" value="40"> km/h
+        </div>
+        <div class="sb-row">
+          <span class="lbl">Lanes</span>
+          <input id="addroad-lanes" type="number" min="1" max="4" value="1">
+          <label class="chk"><input type="checkbox" id="addroad-twoway" checked> two-way</label>
+        </div>
+        <p class="sb-target" id="addroad-status">Pick the first point…</p>
+      </div>
+
+      <div class="sb-panel" id="panel-add-light">
+        <p class="sb-hint">Click a junction to install signals: its approaches
+        get stop lines a few meters before the box, and opposing directions
+        (N+S vs E+W) take turns green &rarr; amber &rarr; red. Esc to stop.</p>
+        <div class="sb-row">
+          <span class="lbl">Green</span>
+          <input id="addlight-green" type="range" min="10" max="60" step="5" value="25">
+          <span id="addlight-green-val">25s</span>
+        </div>
+      </div>
+
+      <div class="sb-panel" id="panel-del-road">
+        <p class="sb-hint">Click a road on the map to select it, then delete.
+        Vehicles on it despawn; routed vehicles replan.</p>
+        <p class="sb-target">Target: <b id="delroad-target">none selected</b></p>
+        <button class="warn" id="delroad-go" type="button">Delete Road</button>
+      </div>
+
+      <div class="sb-panel" id="panel-del-building">
+        <p class="sb-hint">Click a building footprint to demolish it. Esc to stop.</p>
+      </div>
+
+      <div class="sb-panel" id="panel-del-light">
+        <p class="sb-hint">Click a junction to remove its traffic light. Esc to stop.</p>
+      </div>
+
+      <div class="sb-panel" id="panel-del-vehicle">
+        <p class="sb-hint">Click a vehicle on the map to select it.</p>
+        <p class="sb-target">Selected: <b id="delveh-target">none</b></p>
+        <button class="warn" id="delveh-go" type="button">Delete Vehicle</button>
+        <div class="sb-row"></div>
+        <button class="warn" id="delveh-all" type="button">Remove ALL Vehicles</button>
+      </div>
+
+      <div class="sb-panel" id="panel-del-deco">
+        <p class="sb-hint">Click a tree or grass patch to remove it. Esc to stop.</p>
+      </div>
+
+      <div class="sb-panel" id="panel-mod-vehicle">
+        <p class="sb-hint">Click a vehicle on the map to select it.</p>
+        <p class="sb-target">Selected: <b id="modveh-target">none</b></p>
+        <div class="sb-row">
+          <span class="lbl">Routing</span>
+          <select id="modveh-algo">
+            <option value="astar">A*</option>
+            <option value="dijkstra">Dijkstra</option>
+            <option value="bfs">BFS</option>
+          </select>
+          <button id="modveh-algo-go" type="button">Apply</button>
+        </div>
+        <button id="modveh-dest" type="button">Pick New Destination</button>
+      </div>
+
+      <div class="sb-panel" id="panel-mod-road">
+        <p class="sb-hint">Click a road on the map to select it.</p>
+        <p class="sb-target">Target: <b id="modroad-target">none selected</b></p>
+        <div class="sb-row">
+          <span class="lbl">Speed</span>
+          <input id="modroad-speed" type="number" min="10" max="120" value="40"> km/h
+        </div>
+        <div class="sb-row">
+          <label class="chk"><input type="checkbox" id="modroad-closed"> road closed</label>
+        </div>
+        <button id="modroad-go" type="button">Apply</button>
+      </div>
+
+      <div class="sb-panel" id="panel-mod-junction">
+        <p class="sb-hint">Click a junction on the map to inspect it.</p>
+        <p class="sb-target">Junction: <b id="junction-target">none</b></p>
+        <div class="sb-row">
+          <label class="chk"><input type="checkbox" id="junction-light"> signalized</label>
+        </div>
+        <div class="sb-row">
+          <span class="lbl">Green</span>
+          <input id="junction-green" type="range" min="10" max="60" step="5" value="25">
+          <span id="junction-green-val">25s</span>
+        </div>
+        <button id="junction-apply" type="button">Apply</button>
+        <div class="sb-row"></div>
+        <button class="warn" id="junction-delete" type="button">Delete Junction</button>
+      </div>
+
+    </div>
   </aside>
 
-  <!-- Perf meter (toggle with the 'P' key) -->
-  <div id="fpsmeter" class="hidden"></div>
+  <!-- ======= EVENTS log box (bottom-left) ======= -->
+  <div class="events" id="eventlog-box">
+    <div class="event-log-header"><b>EVENTS</b></div>
+    <div class="event-log-body"><ul id="log"></ul></div>
+  </div>
 
-  <!-- Transient messages -->
+  <!-- Selection card -->
+  <aside id="selection" class="panel hidden">
+    <button id="sel-close" class="x" type="button">&times;</button>
+    <h2 id="sel-title">&nbsp;</h2>
+    <div id="sel-body"></div>
+  </aside>
+
+  <!-- Stats drawer -->
+  <aside id="stats" class="panel hidden">
+    <h2>Statistics</h2>
+    <div class="stat-grid">
+      <div><span class="k">Trips done</span><span class="v" id="st-trips">0</span></div>
+      <div><span class="k">Spawned</span><span class="v" id="st-spawned">0</span></div>
+      <div><span class="k">Active</span><span class="v" id="st-active">0</span></div>
+      <div><span class="k">Route calcs</span><span class="v" id="st-reroutes">0</span></div>
+      <div><span class="k">Avg speed</span><span class="v" id="st-speed">-</span></div>
+      <div><span class="k">Lane changes</span><span class="v" id="st-lanes">0</span></div>
+      <div><span class="k">Gridlock breaks</span><span class="v" id="st-forced">0</span></div>
+      <div><span class="k">Rescues</span><span class="v" id="st-rescues">0</span></div>
+      <div><span class="k">Events</span><span class="v" id="st-events">0</span></div>
+    </div>
+    <h3>Routing algorithms</h3>
+    <table id="algo-table">
+      <thead><tr><th>Algo</th><th>Runs</th><th>&micro;s</th><th>Nodes</th><th>Fail</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <h3>Congestion history</h3>
+    <canvas id="chart" width="252" height="72"></canvas>
+  </aside>
+
+  <div id="fpsmeter" class="hidden">-- fps</div>
   <div id="toast" class="hidden"></div>
 
   <!-- Loading / error overlay -->
@@ -35,7 +377,8 @@
     <div class="spinner"></div>
     <div id="loading-text">Loading map…</div>
   </div>
+</main>
 
-  <script type="module" src="../js/app.js"></script>
+<script type="module" src="../js/app.js"></script>
 </body>
 </html>
