@@ -9,6 +9,7 @@
 #include "routing/Dijkstra.hpp"
 #include <algorithm>
 #include <iostream>
+#include <unordered_map>
 #include <cmath>
 
 namespace {
