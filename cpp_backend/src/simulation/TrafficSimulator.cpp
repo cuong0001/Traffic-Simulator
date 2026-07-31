@@ -19,10 +19,17 @@
 #include "vehicles/VehicleTypes.hpp"
 
 namespace {
-// Free space a new vehicle needs at the start of its first road, on top of its
-// own length. Spawning is skipped when the slot is taken; auto_spawn simply
-// tries again on a later tick.
+    // Free space a new vehicle needs at the start of its first road, on top of its
+    // own length. Spawning is skipped when the slot is taken; auto_spawn simply
+    // tries again on a later tick.
     constexpr double kSpawnClearance = 3.0;
+
+    // ---- M7 wait-for graph ----------------------------------------------------
+    // Used by tick_leads_and_physics(), which sits above the solver block, so they
+    // have to be declared here rather than with the other M6/M7 constants.
+    constexpr double kCycleCheckPeriod = 2.0;  // s between wait-for cycle searches
+    constexpr double kWaitEdgeGap = 12.0;      // m: closer than this and we are queued
+    constexpr double kStoppedSpeed = 0.5;      // m/s below which a vehicle is stopped
 }
 
 // Singleton 
@@ -131,11 +138,44 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
     leaders.reserve(vehicles_.size());
     for (Vehicle* v : vehicles_) leaders.push_back(lead_in_lane(v));
 
+    // The wait-for graph, built as we apply the junction decisions: entry i is
+    // the ONE vehicle that vehicle i is stuck behind, or -1. Because each
+    // vehicle waits on at most one other, the graph is functional and a
+    // deadlock is exactly a cycle in it.
+    std::unordered_map<const Vehicle*, int> index_of;
+    index_of.reserve(vehicles_.size() * 2);
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) index_of[vehicles_[i]] = static_cast<int>(i);
+
+    std::vector<int> waiting_on(vehicles_.size(), -1);
+
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        // Queued behind a car that is not moving: a wait-for edge.
+        Vehicle* lead = leaders[i].first;
+        if (lead && leaders[i].second < kWaitEdgeGap &&
+            lead->current_speed < kStoppedSpeed) {
+            auto at = index_of.find(lead);
+            if (at != index_of.end()) waiting_on[i] = at->second;
+        }
+
         auto it = zone_stop_gap_.find(vehicles_[i]);
         if (it != zone_stop_gap_.end() && it->second < leaders[i].second) {
             leaders[i] = {nullptr, it->second};
+            // Giving way to a parked occupant outranks the queue edge: it is
+            // the junction, not the car in front, that we are actually stuck on.
+            auto bl = zone_blocker_.find(vehicles_[i]);
+            if (bl != zone_blocker_.end()) {
+                auto at = index_of.find(bl->second);
+                if (at != index_of.end()) waiting_on[i] = at->second;
+            }
         }
+    }
+
+    // Searching every tick would be wasted work: a deadlock that exists now
+    // still exists in two seconds, and the search is O(n) each time.
+    cycle_timer_ += dt;
+    if (cycle_timer_ >= kCycleCheckPeriod) {
+        cycle_timer_ = 0.0;
+        break_cycles(waiting_on);
     }
     
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
@@ -332,6 +372,7 @@ std::string TrafficSimulator::state_json() {
            << ",\"speed\":" << v->current_speed
            << ",\"lane\":" << v->lane
            << ",\"lat\":" << v->lateral_offset
+           << ",\"state\":" << static_cast<int>(v->state())
            << ",\"type\":" << jstr(v->type()) << "}";
     }
     os << "],";
@@ -612,6 +653,38 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
                                          a->y + (b->y - a->y) * best_t);
     graph_->intersections[mid_id] = mid;
 
+    // Vehicles standing on the road about to be split must survive it. Record
+    // where each one actually IS in the world, and which way it is pointing,
+    // BEFORE the road is deleted -- afterwards there is nothing to measure
+    // against.
+    //
+    // Position is captured as a world coordinate rather than as "fraction
+    // along the road", because `base` and its "_r" twin run in opposite
+    // directions and the split point is not necessarily in the middle. World
+    // coordinates plus a heading are unambiguous; fractions are not, and
+    // getting that wrong silently teleports traffic.
+    struct Displaced { Vehicle* v; double x, y, dx, dy; };
+    std::vector<Displaced> displaced;
+
+    for (const std::string& rid : {base, base + "_r"}) {
+        auto rit = graph_->edges.find(rid);
+        if (rit == graph_->edges.end()) continue;
+        Road* r = rit->second;
+        if (!r->source || !r->target || r->length < 1e-9) continue;
+        const double ux = (r->target->x - r->source->x) / r->length;
+        const double uy = (r->target->y - r->source->y) / r->length;
+        for (Vehicle* v : r->vehicles) {
+            if (!v) continue;
+            displaced.push_back({v,
+                                 r->source->x + ux * v->position_on_road,
+                                 r->source->y + uy * v->position_on_road,
+                                 ux, uy});
+            // Hide it from remove_road_locked(), which despawns anything still
+            // claiming to be on the road it is deleting.
+            v->current_road = nullptr;
+        }
+    }
+
     remove_road_locked(base);
     const std::string id_a = base + "_s" + std::to_string(next_id_++);
     const std::string id_b = base + "_s" + std::to_string(next_id_++);
@@ -620,6 +693,39 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
     if (!oneway) {
         graph_->create_directional_road(id_a + "_r", mid, a, lanes, speed, oneway);
         graph_->create_directional_road(id_b + "_r", b, mid, lanes, speed, oneway);
+    }
+    
+    // Put the traffic back, on whichever half now covers the spot it was
+    // standing on and points the way it was going. A driver crossing this
+    // point should not notice the edit at all: same place, same speed, same
+    // lane.
+    for (const Displaced& d : displaced) {
+        Road* best_fit = nullptr;
+        double best_pos = 0.0, best_dist = 1e18;
+        for (const std::string& cand : {id_a, id_b, id_a + "_r", id_b + "_r"}) {
+            auto it = graph_->edges.find(cand);
+            if (it == graph_->edges.end()) continue;
+            Road* r = it->second;
+            if (!r->source || !r->target || r->length < 1e-9) continue;
+            const double ux = (r->target->x - r->source->x) / r->length;
+            const double uy = (r->target->y - r->source->y) / r->length;
+            if (ux * d.dx + uy * d.dy < 0.0) continue;   // wrong way down it
+            double t = (d.x - r->source->x) * ux + (d.y - r->source->y) * uy;
+            const double clamped = std::clamp(t, 0.0, r->length);
+            const double dist = std::hypot(r->source->x + ux * clamped - d.x,
+                                           r->source->y + uy * clamped - d.y)
+                              + std::abs(t - clamped);
+            if (dist < best_dist) { best_dist = dist; best_fit = r; best_pos = clamped; }
+        }
+        if (!best_fit) {
+            // Nothing to stand on -- rather than leave a vehicle pointing at a
+            // road that is not there, let it go.
+            destroy_vehicle_locked(d.v);
+            vehicles_.erase(std::remove(vehicles_.begin(), vehicles_.end(), d.v),
+                            vehicles_.end());
+            continue;
+        }
+        d.v->transfer_to_road(best_fit, best_pos);
     }
 
     reindex_locked();
@@ -817,11 +923,8 @@ namespace {
     constexpr double kMovingSpeed = 0.5;     // m/s above which a vehicle is moving
     constexpr double kZoneMinSpeed = 1.5;    // m/s floor when estimating arrival
     constexpr double kIgnoreBlockerAfter = 15.0;  // s stuck -> stop giving way
-    
-
 
     // ---- gridlock breaking (M7) ---------------------------------------------
-    constexpr double kStuckForced = 10.0;    // s stopped -> grant right of way
     constexpr double kForcedGrant = 8.0;     // s that grant lasts
     constexpr double kStuckRescue = 45.0;    // s stopped -> teleport along the route
 
@@ -988,6 +1091,7 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
 // than kZoneHorizon is ignored entirely.
 void TrafficSimulator::solve_junctions(double dt, double sim_time) {
     zone_stop_gap_.clear();
+    zone_blocker_.clear();
 
     // "w42_3" and "w42_3_r" are the two directions of one physical street.
     auto base_road = [](const std::string& id) {
@@ -1058,6 +1162,7 @@ void TrafficSimulator::solve_junctions(double dt, double sim_time) {
                 ? v->route[v->route_index + 1]
                 : nullptr;
         bool yield = false;
+        Vehicle* blocker = nullptr;
 
         // (a) the box is taken by someone off another street
         auto occ = occupants.find(node);
@@ -1067,6 +1172,16 @@ void TrafficSimulator::solve_junctions(double dt, double sim_time) {
                 if (base_road(via->id) == my_base) continue;  // same street
                 if (via == my_next) continue;   // already on the road I want
                 yield = true;
+
+                // A wait-for edge only when the occupant is genuinely parked.
+                // Waiting behind someone who is driving away is not a deadlock,
+                // and recording it as one would make the cycle search fire on
+                // ordinary traffic.
+                if (vehicles_[j]->current_speed < kStoppedSpeed) 
+                {
+                    blocker = vehicles_[j];
+                }
+
                 break;
             }
         }
@@ -1110,28 +1225,87 @@ void TrafficSimulator::solve_junctions(double dt, double sim_time) {
             const double stop_gap =
                 to_end - kJunctionZone - v->length_meters() * 0.5;
             zone_stop_gap_[v] = std::max(0.05, stop_gap);
+            if (blocker) zone_blocker_[v] = blocker;
             v->add_zone_wait(dt);
             yields_++;
         }
     }
 }
 
-void TrafficSimulator::solve_gridlock(double sim_time) {
-    for (Vehicle* v : vehicles_) {
-        if (v->stuck_time < kStuckForced) continue;
+// M7 stage 1: find deadlocks instead of guessing at them with a stopwatch.
+//
+// The old rule was "stopped for 10 seconds means deadlocked". That cannot tell
+// a queue from a deadlock, and the difference matters: a vehicle 40th in line
+// at a busy light is behaving correctly and must be left alone, while four
+// vehicles waiting on each other in a ring will never resolve no matter how
+// long you wait. Time is the wrong question. The right one is whether the
+// wait-for relation has a cycle in it.
+//
+// Each vehicle waits on at most one other, so the graph is functional: every
+// node has out-degree <= 1. That makes cycle detection a single O(n) walk with
+// visit stamps -- no recursion, no colours, no union-find.
+//
+// Walk forward from each unvisited vehicle, stamping as we go. Landing on a
+// node stamped in THIS walk means we closed a fresh cycle. Landing on one
+// stamped by an earlier walk means we merged into ground already covered, and
+// any cycle there was already reported.
+std::vector<std::size_t> find_gridlock_cycle_leaders(
+    const std::vector<int>& waiting_on, const std::vector<double>& stuck_times) {
+    std::vector<std::size_t> leaders;
+    const std::size_t n = waiting_on.size();
+    std::vector<int> mark(n, 0);
+    int stamp = 0;
 
-        // Stage 1: let it push through the next junction for a few seconds.
-        if (!v->is_forced(sim_time)) {
-            v->grant_forced_clearance(sim_time + kForcedGrant);
-            forced_throughs_++;
-            continue;
+    for (std::size_t s = 0; s < n; ++s) {
+        if (mark[s]) continue;
+        ++stamp;
+        int u = static_cast<int>(s);
+        while (u >= 0 && !mark[u]) {
+            mark[u] = stamp;
+            u = waiting_on[u];
         }
-        // Stage 2: still frozen much later — the deadlock is not resolving.
-        // Skip it forward along its own route rather than leave it wedged.
-        if (v->stuck_time > kStuckRescue &&
-            v->get_route_index() + 1 < static_cast<int>(v->get_route().size())) {
-            v->rescue_to(static_cast<std::size_t>(v->get_route_index()) + 1);
-            rescues_++;
+        if (u >= 0 && mark[u] == stamp) {
+            // Break the ring at whoever has suffered longest: one grant is
+            // enough, because the vehicle that moves frees the one behind it,
+            // and so on around the ring.
+            std::size_t best = static_cast<std::size_t>(u);
+            for (int w = waiting_on[u]; w != u; w = waiting_on[w]) {
+                if (stuck_times[w] > stuck_times[best]) {
+                    best = static_cast<std::size_t>(w);
+                }
+            }
+            leaders.push_back(best);
         }
+    }
+    return leaders;
+}
+
+void TrafficSimulator::break_cycles(const std::vector<int>& waiting_on) {
+    std::vector<double> stuck(vehicles_.size());
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        stuck[i] = vehicles_[i]->stuck_time;
+    }
+
+    for (std::size_t leader : find_gridlock_cycle_leaders(waiting_on, stuck)) {
+        Vehicle* v = vehicles_[leader];
+        if (v->is_forced(sim_time_)) continue;   // already being pushed through
+        v->grant_forced_clearance(sim_time_ + kForcedGrant);
+        forced_throughs_++;
+        controller_.log_line("Gridlock broken: " + v->id + " forced through");
+    }
+}
+
+// M7 stage 2: the vehicle is not in a cycle we can name, and it has been
+// standing still for the best part of a minute. Lift it forward along its own
+// route. This is the escape hatch of last resort -- if it runs often, the
+// traffic model is wrong and this is papering over it.
+
+void TrafficSimulator::solve_gridlock(double sim_time) {
+    (void)sim_time;
+    for (Vehicle* v : vehicles_) {
+        if (v->stuck_time <= kStuckRescue) continue;
+        if (v->get_route_index() + 1 >= static_cast<int>(v->get_route().size())) continue;
+        v->rescue_to(static_cast<std::size_t>(v->get_route_index()) + 1);
+        rescues_++;
     }
 }
