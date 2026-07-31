@@ -30,6 +30,19 @@ would change what the second one sees inside the same tick.
 class TrafficGraph;
 class Vehicle;
 
+// Find one vehicle to release from every deadlock cycle in the wait-for graph.
+//
+// `waiting_on[i]` is the index of the single vehicle i is stuck behind, or -1.
+// Out-degree <= 1 makes the graph functional, so one O(n) pass with visit
+// stamps finds every cycle without recursion. Returns, per cycle, the member
+// that has been stuck longest -- releasing one is enough, because it frees the
+// next, and so on around the ring.
+//
+// Free function on purpose: it is the whole decision, it depends on nothing
+// but two arrays, and that makes it the part worth testing directly.
+std::vector<std::size_t> find_gridlock_cycle_leaders
+    (const std::vector<int>& waiting_on, const std::vector<double>& stuck_times);
+
 class TrafficSimulator {
 public:
     void solve_junctions(double dt, double sim_time);  // yielding
@@ -40,6 +53,19 @@ public:
     // leaders are resolved, so the vehicle BRAKES to the line under IDM
     // instead of being teleported to a standstill.
     std::unordered_map<Vehicle*, double> zone_stop_gap_;
+
+    // Also filled by solve_junctions(): when a vehicle gives way to something
+    // that is genuinely STOPPED in the junction box, the thing it is waiting
+    // for. A moving occupant is not recorded -- you are not deadlocked behind
+    // someone who is driving away.
+    std::unordered_map<Vehicle*, Vehicle*> zone_blocker_;
+
+    // M7: break deadlocks by finding cycles in the wait-for graph. Each entry
+    // of `waiting_on` is the index of the one vehicle that vehicle is stuck
+    // behind, or -1. A real deadlock is a cycle in that graph.
+    void break_cycles(const std::vector<int>& waiting_on);
+    double cycle_timer_ = 0.0;   // seconds since the last cycle search
+
     // Singleton access.
     static TrafficSimulator& instance();
 

@@ -18,6 +18,13 @@ class TrafficGraph;
 class Vehicle : public IObserver
 {
 public:
+    // Why a vehicle is not moving, so /api/state can say sfo instead of making
+    // the frontend guess from `speed == 0`. A car held at a red light and a car
+    // wedged in a deadlock look identical from the outside; only the simulator
+    // knows which is which, and it is the difference between "working" and
+    // "broken" when you are watching the screen.
+    enum class State { Planning, Moving, WaitingAtLight, Blocked, Arrived };    
+
     std::string id;
     Road* current_road; // The road the vehicle is on
     Intersection* destination; // Destination of vehicle
@@ -156,6 +163,18 @@ public:
     double zone_wait() const { return zone_wait_; }
     bool is_forced(double sim_time) const { return sim_time < forced_until_; }
     void grant_forced_clearance(double until_sim_time) { forced_until_ = until_sim_time; }
+    
+    // Live map editing: the road under this vehicle was split in two, so move
+    // it onto `new_road` at `progress_meters`, keeping its speed, lane and
+    // lateral drift. The old road is ALREADY gone from the graph -- the caller
+    // must have detached this vehicle from it first, because remove_vehicle()
+    // on a deleted road is a use-after-free. The route is reduced to the new
+    // road and marked dirty, so the rest is replanned on the next tick.
+    void transfer_to_road(Road* new_road, double progress_meters);
+
+    // Why this vehicle is currently not moving. Set inside advance().
+    State state() const { return state_; }
+
     // Last resort: jump to a later road of the route to break a deadlock.
     // Refuses if the target slot is occupied, so the next tick tries again.
     void rescue_to(std::size_t new_index);
@@ -180,4 +199,5 @@ private:
 
     double zone_wait_ = 0.0;               // accumulated impatience at a junction
     double forced_until_ = -1.0;           // sim time until which we may push through
+    State state_ = State::Planning;        // reported by /api/state
 };

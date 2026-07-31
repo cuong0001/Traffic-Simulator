@@ -265,6 +265,34 @@ void Vehicle::set_lane(int new_lane, double sim_time) {
     lane_change_cooldown_ = kLaneChangeCooldown;
 }
 
+void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
+    if (!new_road) return;
+
+    // The caller has already detached us from the old road -- it no longer
+    // exists, so there is nothing to remove ourselves from. Doing it here
+    // anyway would dereference a deleted Road.
+    current_road = new_road;
+    position_on_road = std::clamp(progress_meters, 0.0, new_road->length);
+
+    // Keep the motion state. The whole point of transferring rather than
+    // respawning is that the driver does not notice the edit: same speed, same
+    // lane if that lane still exists, same sideways drift.
+    const std::vector<int> ok = allowed_lanes(new_road->lanes);
+    if (std::find(ok.begin(), ok.end(), lane) == ok.end()) {
+        lane = ok.empty() ? 0 : ok.front();
+        target_lateral_offset = 0.0;
+    }
+
+    // The old route ran along a road that is gone. Keep only where we are and
+    // ask for a replan; the simulator picks it up on the next tick.
+    route.clear();
+    route.push_back(new_road);
+    route_index = 0;
+    needs_reroute_ = true;
+
+    new_road->add_vehicle(this);
+}
+
 // ---- gridlock relief ----------------------------------------------------
 void Vehicle::rescue_to(std::size_t new_index) {
     if (new_index >= route.size()) return;
@@ -338,6 +366,22 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
         }
     }
 
+    // Record WHY we are about to move or not, before the physics runs. A red
+    // light is checked first because it outranks everything else: a vehicle
+    // stopped at a light is not blocked, it is obeying.
+    if (is_reached_destination) {
+        state_ = State::Arrived;
+    } else if (route.empty()) {
+        state_ = State::Planning;
+    } else if (effective_gap < gap) {
+        // effective_gap was shortened above, which only happens for a signal.
+        state_ = State::WaitingAtLight;
+    } else if (current_speed < 0.5 && effective_gap < 2.0 * length_meters()) {
+        state_ = State::Blocked;
+    } else {
+        state_ = State::Moving;
+    }
+
     // ---- 2. IDM acceleration ---------------------------------------------
     const double v_lead = lead ? lead->current_speed : 0.0;
     accel = idm_accel(current_speed, v0, v_lead, effective_gap);
@@ -407,6 +451,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
             current_road->remove_vehicle(this);
             route_index = next_index;
             is_reached_destination = true;
+            state_ = State::Arrived;
             current_road = nullptr;
             position_on_road = 0.0;
             current_speed = 0.0;
