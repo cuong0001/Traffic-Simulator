@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "routing/PathFinding.hpp"
 #include "utils/Observer.hpp"
@@ -159,6 +160,15 @@ public:
     // Last resort: jump to a later road of the route to break a deadlock.
     // Refuses if the target slot is occupied, so the next tick tries again.
     void rescue_to(std::size_t new_index);
+
+    void solve_junctions(double dt, double sim_time);  // yielding
+    void solve_gridlock(double sim_time);              // forced / rescue
+
+    // Filled by solve_junctions(): for each vehicle told to give way, the
+    // bumper-to-stop-line gap it must not drive past this tick. Applied when
+    // leaders are resolved, so the vehicle BRAKES to the line under IDM
+    // instead of being teleported to a standstill.
+    std::unordered_map<Vehicle*, double> zone_stop_gap_;
 
 private:
     static constexpr double kMaxZoneWait = 15.0;  // s of impatience worth tracking
