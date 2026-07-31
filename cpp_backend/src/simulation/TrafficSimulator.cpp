@@ -130,6 +130,14 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
     std::vector<std::pair<Vehicle*, double>> leaders;
     leaders.reserve(vehicles_.size());
     for (Vehicle* v : vehicles_) leaders.push_back(lead_in_lane(v));
+
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        auto it = zone_stop_gap_.find(vehicles_[i]);
+        if (it != zone_stop_gap_.end() && it->second < leaders[i].second) {
+            leaders[i] = {nullptr, it->second};
+        }
+    }
+
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
         vehicles_[i]->advance(dt, leaders[i].first, leaders[i].second, sim_time_);
     }
