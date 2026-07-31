@@ -74,6 +74,9 @@ target_link_libraries(test_pathfinder_unit PRIVATE traffic_core)
 add_executable(test_pathfinder_edge  tests/edge_cases/test_pathfinder.cpp)
 target_link_libraries(test_pathfinder_edge PRIVATE traffic_core)
 
+add_executable(route_bench tools/route_bench.cpp)
+target_link_libraries(route_bench PRIVATE traffic_core)
+
 #StatisticManager test==============================================================
 #() Unit test
 add_executable(test_statistics_unit tests/unit_tests/test_statistics.cpp)
