@@ -77,6 +77,33 @@ std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
     return {lead, min_gap};
 }
 
+// Congestion drags the free-flow speed down to 15% of the limit at worst, but
+// never to a standstill: a road reporting 0 m/s would make travel_time_seconds()
+// infinite and IDM's target speed zero, so traffic could never crawl out of the
+// jam it is in. `sensitivity` is how much this vehicle is affected -- 1.0 for
+// ordinary traffic, lower for an ambulance filtering through.
+double Road::effective_speed_ms(double sensitivity) const {
+    const double slowdown =
+        1.0 - 0.85 * congestion_level * std::clamp(sensitivity, 0.0, 1.0);
+    return std::max(1.0, speed_limit_ms() * slowdown);  // never below 1 m/s
+}
+
+double Road::travel_time_seconds(double sensitivity) const {
+    return length / effective_speed_ms(sensitivity);   // speed is never 0
+}
+
+double Road::stop_line_position() const {
+    if (signal_group < 0) return length;   // no signal: nothing to stop for
+    // Never let the line fall off the start of a short block, or a vehicle
+    // would be past it the moment it enters and would never stop.
+    return std::max(0.0, length - signal_stop_from_end);
+}
+
+double Road::cost(CostMode mode) const {
+    if (is_closed) return std::numeric_limits<double>::infinity();
+    return mode == CostMode::Distance ? length : travel_time_seconds();
+}
+
 void Road::update_travel_cost() {
     // If road is closed, set travel cost to infinity which prevent pathfinding algorithms from routing onto this road
     if (is_closed) {

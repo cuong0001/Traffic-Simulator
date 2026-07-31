@@ -4,8 +4,19 @@
 #include <utility>
 
 class Intersection;
-class Vehicle; 
-class Geometry; 
+class Vehicle;
+class Geometry;
+
+// What a router is trying to minimise.
+//
+// Defined here, in core, rather than next to PathFinding: it is a property of
+// how you price a ROAD, and Road::cost() is what actually answers it. Routing
+// consumes it, so the dependency points core -> routing and not back.
+//
+//   Distance : shortest metres. Ignores traffic, so the answer is stable.
+//   Time     : fastest right now, using each road's current congestion. Two
+//              vehicles asking a second apart can get different routes.
+enum class CostMode { Distance, Time };
 
 class Road {
 public:
@@ -29,6 +40,13 @@ public:
 
     //List of vehicles moving on this road.
     std::vector<Vehicle*> vehicles;
+
+    // Traffic signal on THIS approach. The junction owns the cycle; the
+    // approach road owns where its stop line is and which phase group it
+    // belongs to, so opposing streams can show different colours.
+    // signal_group < 0 means "no signal on this approach".
+    int signal_group = -1;
+    double signal_stop_from_end = 8.0;  // m before the road's end
 
     //Attributes for TraficEvent:
     bool is_closed = false;         // use when that event cause close road
@@ -54,4 +72,34 @@ public:
     
     //Behaviour for TraficEvent:
     void update_travel_cost();      // Use for update travel cost
+
+    // ======================================================================
+    // Speed in the units the physics actually wants.
+    //
+    // speed_limit is stored in KM/H because that is what the map file carries
+    // ("speed_kmh"), what write_geojson emits, and what the road-editing panel
+    // shows. Everything that integrates motion works in METRES PER SECOND.
+    // Converting here, once, is the only way both stay true; doing it at the
+    // call sites is how the two units got mixed up in the first place.
+    // ======================================================================
+    double speed_limit_ms() const { return speed_limit / 3.6; }
+
+    // Free-flow speed reduced by how congested this road currently is.
+    // `sensitivity` is 1.0 for ordinary traffic and lower for vehicles that
+    // filter through it -- an ambulance is barely slowed by a queue.
+    double effective_speed_ms(double sensitivity = 1.0) const;
+
+    // How long traversing the whole road takes at the current congestion.
+    double travel_time_seconds(double sensitivity = 1.0) const;
+
+    // Where a vehicle must stop for a red light on this approach, measured
+    // from the START of the road. Returns `length` when there is no signal,
+    // so a caller can use it unconditionally.
+    double stop_line_position() const;
+
+    // Cost of traversing this road under a routing policy. A closed road is
+    // never traversable, so it costs infinity rather than a large finite
+    // number -- a big number is still cheaper than a long detour, which is how
+    // a "closed" road ends up on a route anyway.
+    double cost(CostMode mode = CostMode::Distance) const;
 };
