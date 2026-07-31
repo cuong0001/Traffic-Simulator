@@ -130,6 +130,14 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
     std::vector<std::pair<Vehicle*, double>> leaders;
     leaders.reserve(vehicles_.size());
     for (Vehicle* v : vehicles_) leaders.push_back(lead_in_lane(v));
+
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        auto it = zone_stop_gap_.find(vehicles_[i]);
+        if (it != zone_stop_gap_.end() && it->second < leaders[i].second) {
+            leaders[i] = {nullptr, it->second};
+        }
+    }
+    
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
         vehicles_[i]->advance(dt, leaders[i].first, leaders[i].second, sim_time_);
     }
@@ -801,9 +809,16 @@ namespace {
     constexpr double kMobilObstruction = 0.4;      // only change if actually held up
 
     // ---- junction yielding (M6) ---------------------------------------------
-    constexpr double kJunctionZone = 12.0;   // m before the box where we look
+    constexpr double kJunctionZone = 6.0;    // m: conflict radius around the node
     constexpr double kZoneApproach = 26.0;   // m at which yielding starts
-    constexpr double kImpatience = 6.0;      // s of waiting before we stop yielding
+    constexpr double kZoneHorizon = 4.0;     // s: conflicts farther out are ignored
+    constexpr double kZoneTieMargin = 0.3;   // s: near-simultaneous arrival window
+    constexpr double kZoneBonusCap = 3.0;    // s of head start impatience may claim
+    constexpr double kMovingSpeed = 0.5;     // m/s above which a vehicle is moving
+    constexpr double kZoneMinSpeed = 1.5;    // m/s floor when estimating arrival
+    constexpr double kIgnoreBlockerAfter = 15.0;  // s stuck -> stop giving way
+    
+
 
     // ---- gridlock breaking (M7) ---------------------------------------------
     constexpr double kStuckForced = 10.0;    // s stopped -> grant right of way
@@ -951,52 +966,152 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
         }
     }
 }
-
-// M6/M7: junction yielding and gridlock breaking
-// Vehicles about to enter the same junction take turns. Whoever has waited
-// longest wins; an emergency vehicle, or anyone stuck long enough to have been
-// granted forced clearance, never yields — which is what stops this from
-// deadlocking into a four-way standoff.
+// ---- M6: junction crossing by time-gap acceptance -------------------------
+//
+// The old rule was "everyone within kZoneApproach of a node forms a group, one
+// of them wins, the rest stop". On a synthetic map with ~240 m blocks that is
+// almost right, because being within 26 m of a junction is a rare, meaningful
+// state. On a real OSM extract the median block is 26.8 m, so a vehicle is
+// within 26 m of SOME junction essentially always: 78% of the fleet was
+// permanently in a group, N-1 of them stopped every tick, and they stopped for
+// each other even when their paths never crossed.
+//
+// A driver does not obey a per-junction referee. A driver looks at whether the
+// box is taken, and at whether anyone else will get there first:
+//
+//   (a) the box is occupied by a vehicle off a DIFFERENT street, or
+//   (b) cross traffic is moving and will arrive clearly earlier than us.
+//
+// Two vehicles on the same physical street (a road and its "_r" twin) never
+// conflict, and neither does a vehicle already on the road we are turning
+// into. Arrival is compared in TIME, not distance, and anything farther out
+// than kZoneHorizon is ignored entirely.
 void TrafficSimulator::solve_junctions(double dt, double sim_time) {
-    // Group the vehicles approaching each junction.
-    std::unordered_map<Intersection*, std::vector<Vehicle*>> approaching;
-    for (Vehicle* v : vehicles_) {
-        Road* road = v->current_road;
-        if (!road || !road->target) continue;
-        const double dist = road->length - v->position_on_road;
-        if (dist > kZoneApproach) continue;
-        approaching[road->target].push_back(v);
+    zone_stop_gap_.clear();
+
+    // "w42_3" and "w42_3_r" are the two directions of one physical street.
+    auto base_road = [](const std::string& id) {
+        return id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0
+                   ? id.substr(0, id.size() - 2)
+                   : id;
+    };
+    // Waypoints are shape points the loader inserts so roads follow street
+    // curves, and roundabouts have their own priority rule. Neither is a place
+    // where two streams cross, so neither arbitrates anything.
+    auto is_crossing = [](const Intersection* n) {
+        return n && !n->is_roundabout && n->zone != "waypoint";
+    };
+
+    // ---- pre-pass: who is IN each box, and who is approaching it ----------
+    // Occupant = actively crossing (moving, within kJunctionZone before the
+    // node) or still clearing it (within kJunctionZone past it). A vehicle
+    // merely STOPPED at the stop line is not an occupant -- otherwise a queue
+    // tail would block the cross street forever.
+    std::unordered_map<const Intersection*,
+                       std::vector<std::pair<std::size_t, Road*>>> occupants;
+    std::unordered_map<const Intersection*,
+                       std::vector<std::pair<double, std::size_t>>> approaching;
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        const Vehicle* w = vehicles_[i];
+        Road* r = w->current_road;
+        if (!r) continue;
+        const double to_end = r->length - w->position_on_road;
+        const bool moving = w->current_speed > kMovingSpeed;
+
+        if (is_crossing(r->target)) {
+            if (to_end < kJunctionZone &&
+                (moving || to_end < kJunctionZone - 2.0)) {
+                occupants[r->target].push_back({i, r});
+            } else if (to_end < kZoneApproach) {
+                approaching[r->target].push_back({to_end, i});
+            }
+        }
+        if (is_crossing(r->source) && w->position_on_road < kJunctionZone &&
+            (moving || w->position_on_road < kJunctionZone - 2.0)) {
+            occupants[r->source].push_back({i, r});
+        }
     }
 
-    for (auto& [node, group] : approaching) {
-        if (group.size() < 2) continue;
+    // ---- decide, one vehicle at a time ------------------------------------
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        Vehicle* v = vehicles_[i];
+        Road* road = v->current_road;
+        if (!road) continue;
+        Intersection* node = road->target;
+        if (!is_crossing(node)) continue;
         // A signalized junction is already arbitrated by its lights.
         if (node->is_signalized && node->light_system) continue;
+        // Sirens do not queue, and neither does anyone the gridlock breaker
+        // has already waved through, or who has been stuck so long that
+        // giving way is the thing keeping them stuck.
+        if (v->ignores_lights() || v->is_forced(sim_time)) continue;
+        if (v->stuck_time > kIgnoreBlockerAfter) continue;
 
-        // Pick the one vehicle allowed through: forced/emergency first, then
-        // whoever has been waiting longest, then whoever is closest.
-        Vehicle* winner = nullptr;
-        double best_key = -1.0;
-        for (Vehicle* v : group) {
-            const bool priority = v->ignores_lights() || v->is_forced(sim_time);
-            const double key = (priority ? 1e6 : 0.0) + v->zone_wait() * 10.0 +
-                               (kZoneApproach - (v->current_road->length - v->position_on_road));
-            if (key > best_key) { best_key = key; winner = v; }
+        // Only decide on the APPROACH. Past the stop line the vehicle is
+        // committed: stopping there would leave it parked across the box.
+        const double to_end = road->length - v->position_on_road;
+        if (to_end >= kZoneApproach || to_end <= kJunctionZone) continue;
+
+        const std::string my_base = base_road(road->id);
+        const Road* my_next =
+            (v->route_index + 1 < static_cast<int>(v->route.size()))
+                ? v->route[v->route_index + 1]
+                : nullptr;
+        bool yield = false;
+
+        // (a) the box is taken by someone off another street
+        auto occ = occupants.find(node);
+        if (occ != occupants.end()) {
+            for (const auto& [j, via] : occ->second) {
+                if (j == i) continue;
+                if (base_road(via->id) == my_base) continue;  // same street
+                if (via == my_next) continue;   // already on the road I want
+                yield = true;
+                break;
+            }
         }
 
-        for (Vehicle* v : group) {
-            if (v == winner) continue;
-            if (v->ignores_lights() || v->is_forced(sim_time)) continue;
-            // Waited long enough that yielding is doing more harm than good.
-            if (v->zone_wait() > kImpatience) continue;
+        // Impatience: every second spent waiting claims up to kZoneBonusCap
+        // seconds of head start, so a starved approach eventually takes a slot
+        // and the two streams alternate instead of one never moving. This is
+        // what keeps the rule from deadlocking into a four-way standoff.
+        const double bonus = std::min(v->zone_wait() / 3.0, kZoneBonusCap);
+
+        // (b) moving cross traffic that will clearly get there first
+        if (!yield) {
+            const double t_me =
+                to_end / std::max(v->current_speed, kZoneMinSpeed) - bonus;
+            auto app = approaching.find(node);
+            if (app != approaching.end()) {
+                for (const auto& [d, j] : app->second) {
+                    if (j == i) continue;
+                    const Vehicle* w = vehicles_[j];
+                    if (w->current_speed < kMovingSpeed) continue;  // parked
+                    if (!w->current_road) continue;
+                    if (base_road(w->current_road->id) == my_base) continue;
+                    const double t_w =
+                        d / std::max(w->current_speed, kZoneMinSpeed);
+                    if (t_w > kZoneHorizon) continue;  // far out in time
+                    // Ties break by index so the decision is symmetric:
+                    // exactly one of the pair yields, never both, never
+                    // neither.
+                    if (t_w < t_me - kZoneTieMargin ||
+                        (std::abs(t_w - t_me) <= kZoneTieMargin && j < i)) {
+                        yield = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (yield) {
+            // Brake to the stop line rather than freeze: the line is handed to
+            // IDM as the nearest obstacle when leaders are resolved.
+            const double stop_gap =
+                to_end - kJunctionZone - v->length_meters() * 0.5;
+            zone_stop_gap_[v] = std::max(0.05, stop_gap);
             v->add_zone_wait(dt);
             yields_++;
-            // Stop just short of the box by pinning the vehicle in place.
-            const double dist = v->current_road->length - v->position_on_road;
-            if (dist < kJunctionZone) {
-                v->current_speed = 0.0;
-                v->accel = 0.0;
-            }
         }
     }
 }

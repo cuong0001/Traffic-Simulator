@@ -22,6 +22,7 @@ would change what the second one sees inside the same tick.
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 
 #include "simulation/TrafficController.hpp"
 #include "utils/StatisticsManager.hpp"
@@ -31,6 +32,14 @@ class Vehicle;
 
 class TrafficSimulator {
 public:
+    void solve_junctions(double dt, double sim_time);  // yielding
+    void solve_gridlock(double sim_time);              // forced / rescue
+
+    // Filled by solve_junctions(): for each vehicle told to give way, the
+    // bumper-to-stop-line gap it must not drive past this tick. Applied when
+    // leaders are resolved, so the vehicle BRAKES to the line under IDM
+    // instead of being teleported to a standstill.
+    std::unordered_map<Vehicle*, double> zone_stop_gap_;
     // Singleton access.
     static TrafficSimulator& instance();
 
