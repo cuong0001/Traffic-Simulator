@@ -36,6 +36,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
     f_score.clear();
     prev.clear();
     while (!pq.empty()) pq.pop();
+    nodes_explored_ = 0;
 
     // validate that both nodes exist in the graph
     if (graph.intersections.find(start_id) == graph.intersections.end() ||
@@ -54,6 +55,8 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         // skip stale entries
         if (f > f_score[current_name])
             continue;
+
+        ++nodes_explored_;   // settled: this node's distance is now final
 
         // exit early when goal is reached
         if (current_name == end_id)

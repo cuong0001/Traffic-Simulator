@@ -15,6 +15,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
     dist.clear();
     prev.clear();
     while (!pq.empty()) pq.pop();
+    nodes_explored_ = 0;
 
     // validate that both nodes exist in the graph
     if (graph.intersections.find(start_id) == graph.intersections.end() ||
@@ -34,6 +35,8 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
         // skip relaxed nodes
         if (cost > dist[current_name])
             continue;
+
+        ++nodes_explored_;   // settled: this node's distance is now final
 
         // Exit early if we can find a shortest path
         if (current_name == end_id)

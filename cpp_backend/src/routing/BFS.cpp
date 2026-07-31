@@ -15,6 +15,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     while (!front.empty()) front.pop();
     visited.clear();
     prev.clear();
+    nodes_explored_ = 0;
 
     auto start_it = graph.intersections.find(start_id);
     auto end_it   = graph.intersections.find(end_id);
@@ -31,6 +32,8 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     while (!front.empty()) {
         Intersection* current = front.front();
         front.pop();
+
+        ++nodes_explored_;   // dequeued: this node is now expanded
 
         // Goal check
         if (current->name == end_id)
