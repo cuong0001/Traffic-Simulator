@@ -99,12 +99,9 @@ double Vehicle::idm_accel(double v, double v0, double v_lead, double gap) {
 }
 
 double Vehicle::desired_speed_on(const Road& road) const {
-    const double free_flow = std::min(max_speed, road.speed_limit);
-    // Congestion slows everyone, but by how much depends on the vehicle: an
-    // ambulance filters through, a bus does not. This is what gives
-    // congestion_sensitivity() something to do.
-    const double jam = road.get_congestion_level() * congestion_sensitivity();
-    return free_flow * speed_factor() * idm_factor * std::max(0.25, 1.0 - 0.6 * jam);
+    const double free_flow =
+        std::min(max_speed, road.effective_speed_ms(congestion_sensitivity()));
+    return free_flow * speed_factor() * idm_factor;
 }
 
 void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersection* target) {
