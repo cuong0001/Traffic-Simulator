@@ -596,7 +596,7 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
     }
 
     // ---- signalize surviving junctions at/near a traffic_signals vertex ----
-    int signalized = 0;
+    int signalized = 0, skipped = 0;
     for (std::size_t v : signal_verts) {
         auto it = node_id_of.find(v);
         if (it == node_id_of.end()) continue;
@@ -604,13 +604,19 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         if (nit == graph.intersections.end()) continue;   // pruned away
         Intersection* node = nit->second;
         if (node->is_signalized) continue;
-        node->is_signalized = true;
-        node->light_system = new TrafficLight();
-        ++signalized;
+        // A traffic_signals point in OSM is a GUESS about this junction, so it
+        // has to earn its light: signalize() clusters the approaches into two
+        // opposing phase groups and refuses anything with nothing to
+        // arbitrate. Mid-street signals in OSM are usually pedestrian
+        // crossings, and stopping a straight street for itself is pure loss.
+        if (graph.signalize(node->name)) ++signalized;
+        else ++skipped;
     }
     if (signalized > 0) {
-        std::fprintf(stderr, "[map] signalized %d junction(s) from OSM traffic_signals\n",
-                     signalized);
+        std::fprintf(stderr,
+                     "[map] signalized %d junction(s) from OSM traffic_signals"
+                     " (%d skipped: nothing to arbitrate)\n",
+                     signalized, skipped);
     }
 
     // ---- buildings (visual only) ------------------------------------------
@@ -707,6 +713,24 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
             load_zone(graph, props, (*f)["geometry"]);
         } else if (kind == "building") {
             load_building(graph, props, (*f)["geometry"]);
+        }
+    }
+
+    // Pass 3: phase groups. A node carries its "signal" flag from pass 1, but a
+    // group is a property of the APPROACHES, which only exist now.
+    //
+    // Accept a single group here. The map file states this signal explicitly,
+    // so dropping it would mean save-then-load quietly loses a light the author
+    // placed -- the round trip has to be lossless. Only a node that cannot
+    // carry a signal at all (a roundabout, a waypoint, no approaches) gives it
+    // up, because leaving its approaches unassigned reads as "no group", which
+    // fails closed and would hold the junction on red forever.
+    for (auto& [id, node] : graph.intersections) {
+        if (!node->is_signalized) continue;
+        if (graph.assign_signal_groups(id) > 0) {
+            if (node->light_system) node->light_system->set_phase_offset_from(id);
+        } else {
+            graph.designalize(id);
         }
     }
 }

@@ -40,7 +40,7 @@ public:
     double target_lateral_offset{0.0};  // where the lane change is heading
     int lane{0};                        // current lane, 0 is the innermost
     double stuck_time{0.0};             // seconds spent standing still
-    double last_gap{1e9};               // gap seen by the last react_to_congestion()
+    double last_gap{1e9};               // gap the last advance() actually used
 
     // Constructor
     Vehicle(std::string id, double max_speed, double max_accel, double max_decel);
@@ -70,11 +70,10 @@ public:
     // Finding route from node A to node B
     void request_route(TrafficGraph* graph, Intersection* start, Intersection* target);
 
-    // Update movement step-by-step based on delta time (dt).
-    void step_by_step(double dt);
-
-    // Detecting obstacles or traffic jam to decide whether to slow down, stop, or change the route
-    bool react_to_congestion();
+    // Movement lives in advance(), which the simulator drives. step_by_step()
+    // and react_to_congestion() were superseded by it and had no callers left
+    // anywhere in src/ or tests/, so they are removed rather than kept in step
+    // with a signal model nothing exercised.
 
     // Refinding route from node C to node B
     void recompute_route(TrafficGraph* graph, Intersection* target);

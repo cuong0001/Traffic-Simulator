@@ -24,5 +24,9 @@ public:
     ~Intersection(); 
 
     bool is_intersection() const;
-    void update(double dt); 
+
+    // Colour this junction shows to `group` at `sim_time`, and the seconds
+    // left on it. Unsignalized junctions are green to everyone.
+    unsigned int signal_state_for(int group, double sim_time) const;
+    double signal_remaining_for(int group, double sim_time) const;
 }; 

@@ -91,8 +91,8 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
     sim_time_ += dt;
     ++tick_count_;
 
-    // Each Intersection owns its light.
-    for (auto& [id, node] : graph_->intersections) node->update(dt);
+    // Signals need no tick: a junction's colour is a pure function of
+    // sim_time_ and that junction's own phase offset (see TrafficLight).
 
     // Recompute congestion from the traffic actually on each road. Without
     // this the level only ever moves when an event touches it, so routing
@@ -329,14 +329,24 @@ std::string TrafficSimulator::state_json() {
     os << "],";
 
     // signalized lights
+    // One entry per APPROACH, not per junction. A junction shows different
+    // colours to different approaches, so an entry keyed by junction id cannot
+    // describe it -- the frontend has to know which way is actually stopped.
+    // "n" is the junction id, so heads can still be grouped by node.
     os << "\"lights\":[";
     first = true;
     if (graph_) {
-        for (const auto& [id, node] : graph_->intersections) {
-            if (!node->is_signalized || !node->light_system) continue;
+        for (const auto& [id, road] : graph_->edges) {
+            if (road->signal_group < 0 || !road->target) continue;
+            if (!road->target->is_signalized) continue;
             if (!first) os << ",";
             first = false;
-            os << "{\"id\":" << jstr(id) << ",\"state\":" << node->light_system->get_state() << "}";
+            os << "{\"id\":" << jstr(id)
+               << ",\"n\":" << jstr(road->target->name)
+               << ",\"g\":" << road->signal_group
+               << ",\"d\":" << road->signal_stop_from_end
+               << ",\"state\":"
+               << road->target->signal_state_for(road->signal_group, sim_time_) << "}";
         }
     }
     os << "],";
@@ -688,17 +698,16 @@ bool TrafficSimulator::set_light(const std::string& node_id, bool on, double gre
     if (it == graph_->intersections.end()) return false;
     Intersection* n = it->second;
 
-    delete n->light_system;
+    (void)n;
     if (!on) {
-        n->light_system = nullptr;
-        n->is_signalized = false;
+        graph_->designalize(node_id);
         return true;
     }
     if (green < 5.0) green = 5.0;
-    // Opposing approaches share a group, so red lasts as long as the other green.
-    n->light_system = new TrafficLight(green, 3.0, green + 3.0, 2);
-    n->is_signalized = true;
-    return true;
+    // Go through signalize() so the approaches get phase groups and stop
+    // lines. It refuses a junction with nothing to arbitrate, and the caller
+    // is told rather than left with a light that holds every approach on red.
+    return graph_->signalize(node_id, green);
 }
 
 std::string TrafficSimulator::add_building_at(double x, double y,
