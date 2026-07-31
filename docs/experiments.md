@@ -17,6 +17,6 @@ A* == Dijkstra cost : 100 / 100 pairs   (admissible heuristic => optimal)
 A* search effort    : 27.3% of Dijkstra's nodes
 BFS route cost      : 112.0% of Dijkstra's   (more expensive: BFS counts roads, not weight)
 ```
-
+- Note that us here means microseconds.
 - Explaination : #TODO
 
