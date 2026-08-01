@@ -118,14 +118,11 @@ function disarm() {
   hooks.setPlacing?.(null);
 }
 
-// True while a map-editing tool is waiting for a click. The canvas asks before
-// treating a double-click as "fit view", so double-clicking with Add Road armed
-// places the endpoint instead of throwing the camera back to the whole city.
-export function isArmed() { return tool !== null; }
-
-// True only while the Add Road tool is armed. The canvas needs this separately
-// from isArmed(), which is true for every tool -- otherwise arming "add
-// building" would draw a road endpoint marker under the cursor.
+// True only while the Add Road tool is armed, so the canvas can draw the
+// rubber-band endpoint marker for that tool and no other. (There used to be an
+// isArmed() beside this, for "any tool", whose only caller was the canvas
+// deciding whether a double-click should refit the view. Double-click no longer
+// does anything, so it went with it.)
 export function isAddingRoad() { return tool === "add-road"; }
 
 // The OSM picker covers the whole stage, and the event log floats above it.
@@ -272,8 +269,9 @@ async function refreshMapList() {
       const res = await Sim.loadMap(name);
       if (!res || res.ok === false) return toast("Could not load " + name);
       log(`Loaded map ${name}`);
-      await hooks.reloadMap?.();
-      hooks.fitView?.();
+      // reloadCity, not reloadMap: a different city needs its scenery rebuilt
+      // and the camera reframed, where an in-place edit needs neither.
+      await hooks.reloadCity?.();
       hooks.poll?.();
     });
   }

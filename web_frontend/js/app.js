@@ -17,7 +17,7 @@
 
 "use strict";
 
-import { loadMap, loadState } from "./api.js";
+import { loadMap, loadState, Sim } from "./api.js";
 import { Sprites } from "./sprites.js";
 import * as UI from "./ui.js";
 import { OsmPicker, importArea } from "./osm.js";
@@ -68,7 +68,13 @@ let paintedT = null;                  // transform the static bitmap was painted
 let rebuild = null;                   // in-flight sliced rebuild
 let staticDirty = true;
 let lastStaticPaint = 0;
+// Unit scale, derived from the median road length: the hand-drawn downtown map
+// has ~240 m blocks, a real OSM extract has ~27 m ones. Everything measured in
+// world units (road ribbon, scenery) shrinks by US. Vehicles use VS instead,
+// which has a higher floor -- a car drawn to true scale on a city map is a
+// speck, and the point of the sprite is to be identifiable.
 let US = 1;
+let VS = 1;
 let roadW = ROAD_W;
 let grassPattern = null;
 let dragMoved = false;                // true when a pointer-down turned into a pan
@@ -93,7 +99,17 @@ function hashInt(id) {
 }
 
 // ---- camera ----
+// True until the user first pans or zooms. While it holds, a resize refits;
+// afterwards a resize keeps whatever the user was looking at.
+let cameraUntouched = true;
+
 function resize() {
+  // What is at the middle of the screen right now, so we can put it back.
+  const hadView = canvas.width > 0 && canvas.height > 0 && !cameraUntouched;
+  const midX = hadView ? (canvas.width / 2 - T.tx) / T.s : 0;
+  const midY = hadView ? (canvas.height / 2 - T.ty) / T.s : 0;
+  const keptScale = T.s;
+
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(canvas.clientWidth * dpr);
   canvas.height = Math.round(canvas.clientHeight * dpr);
@@ -101,7 +117,19 @@ function resize() {
   staticLayer.height = canvas.height;
   paintedT = null;   // cached bitmap is gone
   rebuild = null;    // abort any in-flight rebuild (dims changed)
-  fitView();
+
+  fitView();         // always: it is what recomputes fitScale for the new size
+  if (hadView) {
+    // Restore the user's view. A window resize changes how much fits on
+    // screen, not what the user was looking at.
+    T.s = keptScale;
+    T.tx = canvas.width / 2 - midX * keptScale;
+    T.ty = canvas.height / 2 - midY * keptScale;
+    // fitView() just cleared this; the camera is emphatically not at the fit
+    // view, and without putting it back the NEXT resize would refit and throw
+    // the view away after all.
+    cameraUntouched = false;
+  }
 }
 
 function fitView() {
@@ -114,6 +142,7 @@ function fitView() {
   T.s = s;
   T.tx = (canvas.width - world.w * s) / 2 - world.minX * s;
   T.ty = (canvas.height - world.h * s) / 2 - world.minY * s;
+  cameraUntouched = true;
   staticDirty = true;
 }
 
@@ -141,6 +170,7 @@ function initInput() {
     if (!dragging) return;
     T.tx += (e.clientX - lastX) * scaleX();
     T.ty += (e.clientY - lastY) * scaleY();
+    cameraUntouched = false;
     lastX = e.clientX; lastY = e.clientY;
     // a few px of slop so a click with a shaky hand still counts as a click
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) dragMoved = true;
@@ -159,26 +189,29 @@ function initInput() {
     const r = canvas.getBoundingClientRect();
     const cx = (e.clientX - r.left) * scaleX();
     const cy = (e.clientY - r.top) * scaleY();
-    const factor = e.deltaY > 0 ? 1 / 1.15 : 1.15;
+    // One mouse notch is one event, but a trackpad sends a stream of small
+    // ones, so a fixed step per event flies past the target on a laptop.
+    // Normalise to pixels first (deltaMode 1 = lines, 2 = pages), then clamp
+    // so no single event can jump more than a notch and a bit.
+    const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+    const factor = Math.min(1.25, Math.max(1 / 1.25, Math.pow(1.0018, -px)));
     // Limits are relative to the fit view, not absolute, because T.s is in
     // canvas pixels per world METRE and that varies hugely by map: a fixed cap
     // that reaches street level on a small map barely leaves the district view
-    // on a real OSM export. 25 px/m is the floor for the deepest zoom so a 4.5 m
-    // car is always reachable at ~110 px however large the city is.
-    const maxS = Math.max(fitScale * 9, 25);
+    // on a real OSM export. 60 px/m is the floor for the deepest zoom, which
+    // puts a 4.5 m car at ~270 px however large the city is.
+    const maxS = Math.max(fitScale * 12, 60);
     const ns = Math.max(fitScale * 0.5, Math.min(maxS, T.s * factor));
     // keep the world point under the cursor fixed
     T.tx = cx - (cx - T.tx) * (ns / T.s);
     T.ty = cy - (cy - T.ty) * (ns / T.s);
     T.s = ns;
+    cameraUntouched = false;
   }, { passive: false });
 
-  // Double-click to frame the whole city again -- but not while an editing tool
-  // is armed, where the second click is a placement, not a request to zoom out.
-  canvas.addEventListener("dblclick", () => {
-    if (placingProp || UI.isArmed()) return;
-    fitView();
-  });
+  // No dblclick handler on purpose. Fitting the view is a deliberate act --
+  // "F" or Map -> Fit -- not something a stray second click should do while
+  // you are working inside a junction you spent a while zooming into.
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "f" || e.key === "F") fitView();
@@ -191,16 +224,8 @@ function initInput() {
 // ---------------------------------------------------------------------------
 // Map preparation
 // ---------------------------------------------------------------------------
-function prepareMap() {
-  nodeById = {};
-  for (const n of mapData.intersections) nodeById[n.id] = n;
-  roadById = {};
-  for (const r of mapData.roads) roadById[r.id] = r;
-  // draw each two-way street once (skip the "_r" reverse twin)
-  drawRoads = mapData.roads.filter(
-    (r) => !(r.id.endsWith("_r") && roadById[r.id.slice(0, -2)])
-  );
-
+// The extent of everything drawable, and the `world` box fitView() frames.
+function computeWorldBounds() {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const grow = (x, y) => {
     if (x < minX) minX = x; if (x > maxX) maxX = x;
@@ -211,10 +236,45 @@ function prepareMap() {
     for (const [px, py] of b.footprint || []) grow(px, py);
   if (!isFinite(minX)) { minX = minY = 0; maxX = maxY = 1000; }
 
+  const pad = 40;
+  world = { minX: minX - pad, minY: minY - pad,
+            w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+  return { minX, minY, maxX, maxY };
+}
+
+// Everything derived from mapData that the CAMERA has no part in. A live edit
+// runs only this, so zooming into a junction and then deleting a road there
+// leaves the view exactly where it was instead of throwing it back to the whole
+// city. Loading a different map runs prepareMap() below, which does refit.
+function rebuildDerived() {
+  nodeById = {};
+  for (const n of mapData.intersections) nodeById[n.id] = n;
+  roadById = {};
+  for (const r of mapData.roads) roadById[r.id] = r;
+  // draw each two-way street once (skip the "_r" reverse twin)
+  drawRoads = mapData.roads.filter(
+    (r) => !(r.id.endsWith("_r") && roadById[r.id.slice(0, -2)])
+  );
+
+  // /api/map emits one entry per physical street, but /api/state and
+  // /api/vehicle/detail both speak in DIRECTED ids. Without the twins a third
+  // of the fleet resolves to no road and is never drawn, a third of every
+  // highlighted route is invisible, and two-way streets come out half width
+  // because the lane count below cannot see the other direction. The twin of a
+  // two-way street is an exact from/to swap with the same length and lanes
+  // (checked against the reference server: 2783 pairs, no exceptions), so
+  // mirroring them here is free where doubling the payload would not be.
+  for (const r of mapData.roads) {
+    if (r.oneway || r.id.endsWith("_r")) continue;
+    const twin = r.id + "_r";
+    if (!roadById[twin]) roadById[twin] = { ...r, id: twin, from: r.to, to: r.from };
+  }
+
   // Unit scale from the median road length (true meters): OSM blocks are small.
   const lens = drawRoads.map((r) => r.length).sort((a, b) => a - b);
   const median = lens.length ? lens[Math.floor(lens.length / 2)] : 240;
-  US = Math.max(0.15, Math.min(1, median / 240));
+  US = Math.max(0.2, Math.min(1, median / 240));
+  VS = Math.max(US, 0.35);
   roadW = ROAD_W * US;
   roadWOf = {};
   for (const r of drawRoads) {
@@ -222,11 +282,29 @@ function prepareMap() {
     roadWOf[r.id] = (roadW * Math.max(2, Math.min(6, total))) / 4;
   }
 
-  const pad = 40;
-  world = { minX: minX - pad, minY: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
-
+  computeWorldBounds();
   buildSignalHeads();
-  buildOccupancyAndTrees(minX, minY, maxX, maxY);
+  rebuildLiveRoads();
+  staticDirty = true;
+}
+
+// Full initialisation for a NEW city: derived data, scenery, and a camera that
+// frames it. Boot, Files -> Open and the OSM import go through here.
+function prepareMap() {
+  rebuildDerived();
+  const b = computeWorldBounds();
+  // A different city: there is no view worth preserving, so let resize() fit.
+  cameraUntouched = true;
+
+  // Procedural scenery is for the hand-drawn downtown map. A real extract
+  // brings its own building footprints, and on a city-scale graph the scatter
+  // is up to 1400 props each carrying a radial-gradient shadow -- repainted
+  // every time the camera moves, which is what makes zooming stutter.
+  const hasBuildings = (mapData.buildings || []).length > 0;
+  const huge = drawRoads.length > 1500;
+  if (hasBuildings || huge) props = [];
+  else buildOccupancyAndTrees(b.minX, b.minY, b.maxX, b.maxY);
+
   resize();
 }
 
@@ -273,7 +351,16 @@ let occ = null, occCols = 0, occRows = 0, occCell = 1;
 
 function buildOccupancyAndTrees(minX, minY, maxX, maxY) {
   props = [];
-  occCell = Math.max(14, roadW * 1.6);
+  const treeW = Math.max(6, 9 * US * 4);   // world-unit canopy width
+  // A tree needs its trunk clear of the asphalt by half the road plus half its
+  // own canopy. The stamping below marks every cell within ONE RING of a road,
+  // so any cell left free is already at least occCell away from one -- size the
+  // cell to exactly that clearance and "is this cell free" becomes the whole
+  // test. The previous rule (a fixed 14 m cell, and the four neighbours free as
+  // well) demanded three clear cells in a row, which on a 240 m block with 30
+  // unit-wide roads is wider than the gap between them: it produced no scenery
+  // at all on precisely the hand-drawn maps the scatter exists for.
+  occCell = Math.max(12, roadW * 0.5 + treeW * 0.5 + 4);
   occCols = Math.max(1, Math.ceil((maxX - minX) / occCell) + 1);
   occRows = Math.max(1, Math.ceil((maxY - minY) / occCell) + 1);
   if (occCols * occRows > 4000000) { occ = null; return; } // safety cap
@@ -314,7 +401,6 @@ function buildOccupancyAndTrees(minX, minY, maxX, maxY) {
   const rng = mulberry32(20260719);
   const spacing = occCell * 2.4;
   const maxTrees = 1400;
-  const treeW = Math.max(6, 9 * US * 4);   // world-unit canopy width
   for (let y = minY; y < maxY && props.length < maxTrees; y += spacing) {
     for (let x = minX; x < maxX && props.length < maxTrees; x += spacing) {
       if (rng() < 0.35) continue;                       // thin it out
@@ -322,9 +408,7 @@ function buildOccupancyAndTrees(minX, minY, maxX, maxY) {
       const jy = y + (rng() - 0.5) * spacing * 0.7;
       const cx = cellX(jx), cy = cellY(jy);
       if (cx < 1 || cy < 1 || cx >= occCols - 1 || cy >= occRows - 1) continue;
-      // require the cell and its 4-neighbours free (tree body has room)
-      if (occ[cy * occCols + cx] || occ[cy * occCols + cx - 1] || occ[cy * occCols + cx + 1] ||
-          occ[(cy - 1) * occCols + cx] || occ[(cy + 1) * occCols + cx]) continue;
+      if (occ[cy * occCols + cx]) continue;             // road or building here
       const seed = hashInt(`${cx},${cy}`);
       props.push({ name: "tree-" + (1 + (seed % 4)), x: jx, y: jy, w: treeW * (0.8 + rng() * 0.5) });
     }
@@ -582,8 +666,17 @@ let lightSetback = {};   // road id -> metres the stop line sits before the junc
 let routeVehicleId = null;
 let routeRoadIds = [];            // nodeId -> 0|1|2
 let roadState = {};             // roadId -> { congestion, closed }
-let vehIndex = new Map();       // id -> { x, y, h, tx, ty, th, type }
 let simOnline = false;
+
+// Snapshot interpolation. Vehicles are drawn ~one poll interval in the PAST,
+// linearly blended between the two most recent /api/state samples, so motion is
+// continuous whatever the poll rate or the tick rate. The obvious alternative --
+// easing the drawn position toward the newest sample -- is what this replaces:
+// it lags by its own time constant, never reaches the target, and pulses once
+// per poll, which is exactly what "jerky" looks like.
+let snapPrev = null, snapCur = null;   // { t, byId: Map(id -> placed vehicle) }
+let pollInterval = 150;                // ms, recomputed after each poll
+let interpDelay = 210;                 // ms, ~1.4x the poll interval
 
 // Place a vehicle from (road id, metres along it). Roads are straight segments
 // between two nodes — the loader already split curves into waypoint nodes — so
@@ -624,63 +717,131 @@ function applyState(s) {
   roadState = {};
   for (const r of s.roads || []) roadState[r.id] = r;
 
-  const seen = new Set();
+  const byId = new Map();
   for (const v of s.vehicles || []) {
     const p = placeOnRoad(v.road, v.pos, v.lane || 0, v.lat || 0);
     if (!p) continue;
-    seen.add(v.id);
-    let e = vehIndex.get(v.id);
-    if (!e) {
-      // new vehicle: appear where it actually is, don't glide in from nowhere
-      e = { x: p.x, y: p.y, h: p.h, tx: p.x, ty: p.y, th: p.h, type: v.type };
-      vehIndex.set(v.id, e);
-    } else {
-      // a road change teleports the target; snap instead of sliding across the map
-      if (Math.hypot(p.x - e.tx, p.y - e.ty) > 60) { e.x = p.x; e.y = p.y; e.h = p.h; }
-      e.tx = p.x; e.ty = p.y; e.th = p.h; e.type = v.type;
-    }
+    byId.set(v.id, { id: v.id, type: v.type, road: v.road, speed: v.speed || 0,
+                     x: p.x, y: p.y, h: p.h });
   }
-  for (const id of vehIndex.keys()) if (!seen.has(id)) vehIndex.delete(id);
+  snapPrev = snapCur;
+  snapCur = { t: performance.now(), byId };
+
+  // Drop the steering state of everyone who has left, or the maps grow without
+  // bound over a long run.
+  for (const id of displayHeading.keys()) if (!byId.has(id)) displayHeading.delete(id);
+  for (const id of interpPool.keys()) if (!byId.has(id)) interpPool.delete(id);
 
   // The highlighted vehicle finished its trip or was removed: drop the path
   // rather than leave a route glowing under traffic that is no longer there.
-  if (routeVehicleId && !seen.has(routeVehicleId)) clearRouteHighlight();
+  if (routeVehicleId && !byId.has(routeVehicleId)) clearRouteHighlight();
 }
 
-// Ease the drawn position toward the last reported one, so 4 Hz polling still
-// looks continuous. k is frame-rate independent.
-function advanceVehicles(dtMs) {
-  const k = 1 - Math.pow(0.0025, dtMs / 1000);
-  for (const e of vehIndex.values()) {
-    e.x += (e.tx - e.x) * k;
-    e.y += (e.ty - e.y) * k;
-    let d = e.th - e.h;                       // shortest way round the circle
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    e.h += d * k;
+// Blend the two newest snapshots at (now - interpDelay). Both the output
+// objects and the array are REUSED between frames: at 60 fps across a
+// four-figure fleet, allocating fresh ones every frame is enough garbage to
+// show up as periodic stalls.
+const interpPool = new Map();       // id -> reusable render object
+const interpOut = [];
+
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+function interpolatedVehicles() {
+  interpOut.length = 0;
+  if (!snapCur) return interpOut;
+  const blend = snapPrev && snapCur.t > snapPrev.t;
+  const at = performance.now() - interpDelay;
+  let t = blend ? (at - snapPrev.t) / (snapCur.t - snapPrev.t) : 1;
+  t = Math.max(0, Math.min(1.25, t));    // a little extrapolation beats stalling
+  const tc = Math.min(1, t);
+  // How far a vehicle can legitimately travel between two samples. Anything
+  // beyond it is a reroute, a rescue or a respawn -- snap, rather than slide
+  // the sprite across town.
+  const jump = 150 * Math.max(1, simState ? simState.speed || 1 : 1);
+  for (const [id, cur] of snapCur.byId) {
+    const prev = blend ? snapPrev.byId.get(id) : null;
+    if (!prev || Math.hypot(cur.x - prev.x, cur.y - prev.y) > jump) {
+      displayHeading.delete(id);        // don't animate a turn across a teleport
+      interpOut.push(cur);
+      continue;
+    }
+    let o = interpPool.get(id);
+    if (!o) { o = {}; interpPool.set(id, o); }
+    o.id = id;
+    o.type = cur.type;
+    o.road = cur.road;
+    o.speed = cur.speed;
+    o.x = prev.x + (cur.x - prev.x) * t;
+    o.y = prev.y + (cur.y - prev.y) * t;
+    o.h = lerpAngle(prev.h, cur.h, tc);
+    interpOut.push(o);
   }
+  return interpOut;
+}
+
+// Displayed heading per vehicle, eased toward the target at a capped angular
+// speed. Interpolating the heading alone still snaps at a corner, because the
+// two samples either side of it are 90 degrees apart; capping the rate is what
+// makes the turn read as steering.
+const displayHeading = new Map();
+
+function smoothHeading(id, target) {
+  let h = displayHeading.get(id);
+  if (h === undefined) { displayHeading.set(id, target); return target; }
+  let d = target - h;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  // ~7 rad/s at 60 fps, and quicker when the simulation itself is sped up.
+  const maxStep = 0.12 * Math.max(1, simState ? simState.speed || 1 : 1);
+  h += Math.abs(d) <= maxStep ? d : Math.sign(d) * maxStep;
+  if (h > Math.PI) h -= Math.PI * 2;
+  if (h < -Math.PI) h += Math.PI * 2;
+  displayHeading.set(id, h);
+  return h;
+}
+
+// The drawn width of one lane on a given road, so a sprite can be capped to it
+// and never overhang the asphalt.
+function laneWidthOf(roadId) {
+  const r = roadById[roadId];
+  if (!r) return roadW / 4;
+  const base = roadId.endsWith("_r") ? roadId.slice(0, -2) : roadId;
+  return (roadWOf[base] || roadW) * 0.5 / Math.max(1, r.lanes || 1);
 }
 
 function drawVehicles() {
-  if (!vehIndex.size) return;
+  const vs = interpolatedVehicles();
+  if (!vs.length) return;
   const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
   const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
 
-  for (const [id, e] of vehIndex) {
+  // Painter's order so a sprite overlapping another resolves consistently --
+  // pointless once everything is a few pixels across.
+  if (19 * VS * T.s >= 4) vs.sort((a, b) => a.y - b.y);
+
+  for (const e of vs) {
     if (e.x < rMinX - 40 || e.x > rMaxX + 40 || e.y < rMinY - 40 || e.y > rMaxY + 40) continue;
 
     const lenM = VEH_LEN[e.type] || 4.5;
-    const w = Math.max(3, lenM * US * T.s * 1.6);   // on-screen length in px
+    // VS, not US: a car at true map scale is a speck on a city map. Capped to
+    // ~2.8 lane widths so the exaggeration can never spill onto the pavement.
+    const w = Math.max(3, Math.min(lenM * VS * 1.6, laneWidthOf(e.road) * 2.8) * T.s);
     const h = w * 0.5;
     const sx = wx(e.x), sy = wy(e.y);
+    const heading = smoothHeading(e.id, e.h);
 
     const spr = e.type === "car"
-      ? Sprites.pick("car", 4, hashInt(id))
+      ? Sprites.pick("car", 4, hashInt(e.id))
       : Sprites.get(e.type + "-1");
 
     ctx.save();
     ctx.translate(sx, sy);
-    ctx.rotate(e.h);
+    ctx.rotate(heading);
     if (spr) {
       ctx.drawImage(spr.img, -w / 2, -h / 2, w, h);
     } else {
@@ -720,31 +881,62 @@ function drawSignals() {
   }
 }
 
-// Congested / closed roads, drawn over the asphalt.
-function drawRoadStatus() {
-  const ids = Object.keys(roadState);
-  if (!ids.length) return;
-  ctx.lineCap = "round";
-  for (const id of ids) {
-    const r = roadById[id];
+// Roads worth drawing status for, merged to one entry per PHYSICAL street and
+// resolved to endpoints. Rebuilt once per poll, not once per frame: the state
+// changes four to twenty times a second and the screen redraws sixty, so doing
+// this per frame was re-deriving the same answer fifteen times over -- with a
+// fresh key array allocated each time.
+let liveRoads = [];
+
+// Below this the tint is a wash of orange over most of the city and says
+// nothing; the reference uses the same threshold.
+const CONGESTION_FLOOR = 0.12;
+
+function rebuildLiveRoads() {
+  const merged = new Map();
+  for (const id of Object.keys(roadState)) {
+    const st = roadState[id];
+    const c = st.congestion || 0;
+    if (c <= CONGESTION_FLOOR && !st.closed) continue;
+    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
+    const r = roadById[base] || roadById[id];
     if (!r) continue;
     const a = nodeById[r.from], b = nodeById[r.to];
     if (!a || !b) continue;
-    const st = roadState[id];
-    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
-    ctx.strokeStyle = st.closed
+    let e = merged.get(base);
+    // Both directions share one ribbon, so show the worse of the two -- and
+    // one barrier, not two stacked on the same midpoint.
+    if (!e) {
+      e = { base, ax: a.x, ay: a.y, bx: b.x, by: b.y, c, closed: !!st.closed };
+      merged.set(base, e);
+    } else {
+      if (c > e.c) e.c = c;
+      e.closed = e.closed || !!st.closed;
+    }
+  }
+  liveRoads = [...merged.values()];
+}
+
+// Congested / closed roads, drawn over the asphalt.
+function drawRoadStatus() {
+  if (!liveRoads.length) return;
+  const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
+  const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
+  ctx.lineCap = "round";
+  for (const e of liveRoads) {
+    if (Math.max(e.ax, e.bx) < rMinX || Math.min(e.ax, e.bx) > rMaxX ||
+        Math.max(e.ay, e.by) < rMinY || Math.min(e.ay, e.by) > rMaxY) continue;
+    ctx.strokeStyle = e.closed
       ? "rgba(239,68,68,.75)"
-      : `rgba(245,158,11,${Math.min(0.6, 0.15 + st.congestion * 0.5)})`;
-    ctx.lineWidth = Math.max(1.5, (roadWOf[base] || roadW) * T.s * 0.5);
+      : `rgba(245,158,11,${Math.min(0.6, 0.15 + e.c * 0.5)})`;
+    ctx.lineWidth = Math.max(1.5, (roadWOf[e.base] || roadW) * T.s * 0.5);
     ctx.beginPath();
-    ctx.moveTo(wx(a.x), wy(a.y));
-    ctx.lineTo(wx(b.x), wy(b.y));
+    ctx.moveTo(wx(e.ax), wy(e.ay));
+    ctx.lineTo(wx(e.bx), wy(e.by));
     ctx.stroke();
-    // One barrier per physical street, not one per direction, or a two-way
-    // closure draws the same marker twice in the same place.
-    if (st.closed && !id.endsWith("_r")) {
-      drawBarrier(wx((a.x + b.x) / 2), wy((a.y + b.y) / 2),
-                  Math.atan2(b.y - a.y, b.x - a.x));
+    if (e.closed) {
+      drawBarrier(wx((e.ax + e.bx) / 2), wy((e.ay + e.by) / 2),
+                  Math.atan2(e.by - e.ay, e.bx - e.ax));
     }
   }
 }
@@ -891,7 +1083,6 @@ function drawAddRoadPreview() {
 
 function render() {
   const now = performance.now();
-  const frameDt = lastFrameTs ? Math.min(100, now - lastFrameTs) : 16;
   if (lastFrameTs) {
     const gap = now - lastFrameTs;
     if (gap > fpsWorst) fpsWorst = gap;
@@ -908,7 +1099,6 @@ function render() {
   lastFrameTs = now;
 
   if (mapData) {
-    advanceVehicles(frameDt);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawStaticLayer();
     drawRouteHighlight();
@@ -924,8 +1114,12 @@ function render() {
 // ---------------------------------------------------------------------------
 // Simulation polling
 // ---------------------------------------------------------------------------
-const POLL_MS = 250;             // 4 Hz; drawing interpolates between samples
+let pollTimer = null;
 
+// Self-scheduling rather than setInterval: poll() is async, and an interval
+// would start the next fetch while the previous one is still out, so two
+// replies could land out of order and hand the interpolator a snapshot older
+// than the one it already has.
 async function poll() {
   const s = await loadState();
   if (s) {
@@ -934,6 +1128,7 @@ async function poll() {
       UI.log("Simulation connected");
     }
     applyState(s);
+    rebuildLiveRoads();
   } else if (simOnline) {
     simOnline = false;
     simState = null;
@@ -942,6 +1137,15 @@ async function poll() {
   // Keep the highlighted route in step with the vehicle that owns it.
   if (routeVehicleId) refreshRoute();
   UI.update(simState);
+
+  // A faster simulation covers more ground between two samples, so sample more
+  // often: 150 ms at 1x down to 45 ms at 10x, keeping the distance travelled
+  // per sample roughly fixed. The render delay follows it.
+  const spd = Math.max(1, simState ? simState.speed || 1 : 1);
+  pollInterval = Math.max(45, Math.min(150, Math.round(150 / spd)));
+  interpDelay = Math.max(90, pollInterval * 1.4);
+  if (pollTimer !== null) clearTimeout(pollTimer);
+  pollTimer = setTimeout(poll, pollInterval);
 }
 
 function randomNode() {
@@ -965,9 +1169,12 @@ function setPlacing(name) {
 // the same at every zoom level.
 function pickAt(wxp, wyp) {
   let best = null, bestD = 18 / T.s;
-  for (const [id, e] of vehIndex) {
+  // Pick against the DRAWN positions, not the newest snapshot: the sprite the
+  // user aimed at is the interpolated one, and at speed the two are metres
+  // apart.
+  for (const e of interpolatedVehicles()) {
     const d = Math.hypot(e.x - wxp, e.y - wyp);
-    if (d < bestD) { bestD = d; best = { kind: "vehicle", id, e }; }
+    if (d < bestD) { bestD = d; best = { kind: "vehicle", id: e.id, e }; }
   }
   if (best) return best;
 
@@ -1083,7 +1290,7 @@ function onMapClick(worldX, worldY) {
 async function selectVehicleRoute(id) {
   routeVehicleId = id;
   routeRoadIds = [];
-  lastRouteFetch = 0;                       // fetch immediately
+  lastRouteFetch = -Infinity;               // fetch immediately
   await refreshRoute();
 }
 
@@ -1092,7 +1299,10 @@ async function selectVehicleRoute(id) {
 // roads already driven, and pointing the wrong way entirely after a reroute --
 // so re-ask while the vehicle stays selected. Throttled, because this is the
 // one call that does take the simulation lock.
-let lastRouteFetch = 0;
+// -Infinity, not 0: performance.now() is measured from page load, so a plain 0
+// makes the throttle swallow the very first fetch when a vehicle is clicked in
+// the first 400 ms after the page appears.
+let lastRouteFetch = -Infinity;
 const ROUTE_REFRESH_MS = 400;
 
 async function refreshRoute() {
@@ -1105,8 +1315,14 @@ async function refreshRoute() {
     const d = await Sim.vehicleDetail(id);
     if (routeVehicleId !== id) return;      // selection changed while waiting
     routeRoadIds = Array.isArray(d?.route) ? d.route : [];
-  } catch {
-    /* keep the previous route rather than blinking it away on one bad poll */
+  } catch (err) {
+    // Keep the previous route rather than blinking it away on one bad poll --
+    // but say something. A silent catch here is what hid a missing `Sim`
+    // import: every call threw ReferenceError, was swallowed, and the route
+    // highlight simply never appeared with nothing in the console to show for
+    // it. A dropped network poll is expected; a bug is not, and the two look
+    // identical from in here.
+    console.warn("route refresh failed", err);
   }
 }
 
@@ -1124,13 +1340,20 @@ function removePropAt(i) {
 }
 
 // Re-fetch the map after a server-side edit and rebuild the static layer.
+// Deliberately NOT prepareMap(): an edit is a change to the city you are
+// already looking at, so the camera stays put and client-placed scenery is
+// left alone. Loading a different map is what calls prepareMap().
 async function reloadMap() {
   mapData = await loadMap();
-  const keep = props.slice();       // client-side scenery survives a reload
+  rebuildDerived();
+}
+
+// A DIFFERENT city (Files -> Open, or an OpenStreetMap import). Everything
+// derived from the old one is wrong now, including the scenery scattered into
+// its gaps and the camera framing its extent, so this is the full path.
+async function reloadCity() {
+  mapData = await loadMap();
   prepareMap();
-  props = keep.concat(props);
-  props.sort((p, q) => p.y - q.y);
-  staticDirty = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1213,9 +1436,9 @@ function initOsmPicker() {
     try {
       const r = await importArea(picker.sel, name, (m) => say(m));
       // The backend has already swapped the running map, so the canvas has to
-      // throw away everything it derived from the old one.
-      await reloadMap();
-      fitView();
+      // throw away everything it derived from the old one -- scenery and camera
+      // included, which is what separates this from an in-place edit.
+      await reloadCity();
       close();
       UI.log(`Imported ${r.roads} roads and ${r.signals} traffic signals ` +
              `from OpenStreetMap as "${name}"`);
@@ -1254,14 +1477,14 @@ async function boot() {
       setPlacing,
       removePropAt,
       reloadMap,
+      reloadCity,
       getState: () => simState,
       getMap: () => mapData,
       getDrawRoads: () => drawRoads,
       getPropCount: () => props.length,
     });
 
-    poll();
-    setInterval(poll, POLL_MS);
+    await poll();          // schedules its own next run
     requestAnimationFrame(render);
   } catch (err) {
     console.error(err);
@@ -1270,4 +1493,43 @@ async function boot() {
   }
 }
 
-boot();
+const ready = boot();
+
+// Read-only window into the renderer for web_frontend/tests/. The tests drive
+// this module for real -- real map, real /api/state, real draw calls -- so they
+// need to see what it decided, not a copy of the logic. Nothing here is used by
+// the page itself.
+export const __debug = {
+  ready,
+  get T() { return T; },
+  get fitScale() { return fitScale; },
+  get US() { return US; },
+  get VS() { return VS; },
+  get mapData() { return mapData; },
+  get roadById() { return roadById; },
+  get nodeById() { return nodeById; },
+  get drawRoads() { return drawRoads; },
+  get props() { return props; },
+  get simState() { return simState; },
+  get routeRoadIds() { return routeRoadIds; },
+  get routeVehicleId() { return routeVehicleId; },
+  get liveRoads() { return liveRoads; },
+  get pollInterval() { return pollInterval; },
+  get interpDelay() { return interpDelay; },
+  snapTimes: () => [snapPrev && snapPrev.t, snapCur && snapCur.t],
+  stopPolling() {
+    if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+  },
+  // A copy on purpose: the renderer reuses one pooled object per vehicle, so
+  // the live array is only valid until the next call. Tests hold on to results.
+  drawnVehicles: () => interpolatedVehicles().map((v) => ({ ...v })),
+  placeOnRoad,
+  selectVehicleRoute,
+  clearRouteHighlight,
+  reloadMap,
+  reloadCity,
+  prepareMap,
+  fitView,
+  poll,
+  onMapClick,
+};
