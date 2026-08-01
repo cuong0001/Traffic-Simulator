@@ -1,0 +1,13 @@
+timestamp,scenario,algorithm,sim_seconds,completed_trips,avg_travel_time_s,avg_congestion,route_recomputations,active_vehicles_end
+2026-08-01 23:29,low-traffic,bfs,300.0,52,197.17,0.002,327,40
+2026-08-01 23:29,low-traffic,dijkstra,330.0,40,201.67,0.002,442,40
+2026-08-01 23:29,low-traffic,astar,330.5,51,199.18,0.002,370,40
+2026-08-01 23:29,rush-hour,bfs,323.5,132,169.43,0.009,1605,199
+2026-08-01 23:29,rush-hour,dijkstra,316.0,130,171.17,0.01,1908,198
+2026-08-01 23:29,rush-hour,astar,312.5,131,172.3,0.01,1675,196
+2026-08-01 23:29,closure,bfs,326.5,116,190.1,0.006,954,120
+2026-08-01 23:29,closure,dijkstra,323.5,127,183.43,0.007,1106,119
+2026-08-01 23:29,closure,astar,317.5,109,197.8,0.007,1190,120
+2026-08-01 23:29,sustained,bfs,325.0,107,181.83,0.006,1313,120
+2026-08-01 23:29,sustained,dijkstra,321.0,110,189.28,0.006,1310,120
+2026-08-01 23:29,sustained,astar,321.5,107,185.5,0.007,981,120
