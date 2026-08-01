@@ -60,8 +60,29 @@ int main(int argc, char** argv) {
     // costs a pointer copy instead of a lock on the simulation.
     sim.start_publishing();
 
+    // Minimal JSON string escaper for the few places main() builds a reply
+    // containing text that came from outside (an import warning, a parser
+    // message). Everything else here emits fixed literals.
+    auto jstr_ = [](const std::string& in) {
+        std::string out = "\"";
+        for (char c : in) {
+            if (c == '"' || c == '\\') {
+                out += '\\';
+                out += c;
+            } else if (c == '\n') {
+                out += "\\n";
+            } else if (static_cast<unsigned char>(c) < 0x20) {
+                continue;   // control characters would break the document
+            } else {
+                out += c;
+            }
+        }
+        return out + "\"";
+    };
+
     // REST API dispatch.
-    auto api = [&sim](const std::string& p, const HttpServer::Params& params) -> std::string {
+    auto api = [&sim, &jstr_](const std::string& p, const HttpServer::Params& params,
+                              const std::string& body) -> std::string {
         auto get = [&](const std::string& key, const std::string& def = "") {
             auto it = params.find(key);
             return it == params.end() ? def : it->second;
@@ -212,6 +233,23 @@ int main(int argc, char** argv) {
         if (p == "/api/saveMap") {
             return sim.save_map(get("name")) ? ok_true
                  : "{\"ok\":false,\"error\":\"could not save map\"}";
+        }
+        if (p == "/api/importMap") {
+            // The browser fetched the area from OpenStreetMap, converted it to
+            // GeoJSON and POSTed it here. The fetch happens there rather than
+            // in this process on purpose: Overpass is HTTPS, and the browser
+            // already has TLS -- adding an HTTPS client to a project with no
+            // dependencies would be a large price for one feature.
+            const std::string name = get("name", "osm-import");
+            const auto r = sim.import_map(name, body);
+            if (!r.ok) {
+                return std::string("{\"ok\":false,\"error\":") + jstr_(r.message) + "}";
+            }
+            // Loaded, but validate() may still have a complaint -- a map with
+            // disconnected pieces works, it just routes badly. Say so instead
+            // of hiding it behind a bare success.
+            if (r.message.empty()) return ok_true;
+            return std::string("{\"ok\":true,\"warning\":") + jstr_(r.message) + "}";
         }
         if (p == "/api/loadMap") {
             return sim.load_map(get("name")) ? ok_true

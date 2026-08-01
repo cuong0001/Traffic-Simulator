@@ -120,6 +120,20 @@ public:
     bool save_map(const std::string& name);                // data/maps/<name>.geojson
     bool load_map(const std::string& name);
 
+    // Outcome of an import. Two different things can be true at once -- the
+    // map loaded AND it has a problem worth reporting -- so they are separate
+    // fields rather than one string that the caller has to interpret.
+    struct ImportResult {
+        bool ok = false;        ///< did the map actually replace the running one
+        std::string message;    ///< failure reason, or a validation warning
+    };
+
+    // Adopt a GeoJSON document that arrived over HTTP rather than off disk --
+    // an area the user picked out of OpenStreetMap in the browser. Parses into
+    // a detached graph first, so a malformed import leaves the running city
+    // alone, and only writes the file once the parse succeeded.
+    ImportResult import_map(const std::string& name, const std::string& geojson);
+
     TrafficGraph* graph() const { return graph_; }
 
     // JSON for the web API. Each locks the simulation internally.
