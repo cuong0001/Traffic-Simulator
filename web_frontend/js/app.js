@@ -20,6 +20,7 @@
 import { loadMap, loadState } from "./api.js";
 import { Sprites } from "./sprites.js";
 import * as UI from "./ui.js";
+import { OsmPicker, importArea } from "./osm.js";
 
 // ---- palette ----
 const C = {
@@ -1113,8 +1114,92 @@ function showError(msg) {
   document.getElementById("loading-text").textContent = msg;
 }
 
+// ---------------------------------------------------------------------------
+// OpenStreetMap area picker
+// ---------------------------------------------------------------------------
+function initOsmPicker() {
+  const overlay = document.getElementById("osm-overlay");
+  const cv = document.getElementById("osm-canvas");
+  const status = document.getElementById("osm-status");
+  const sizeEl = document.getElementById("osm-size");
+  const lockBtn = document.getElementById("osm-lock");
+  if (!overlay || !cv) return;
+
+  const picker = new OsmPicker(cv);
+  let busy = false;
+
+  const say = (msg, isError) => {
+    if (!msg) { status.classList.add("hidden"); return; }
+    status.textContent = msg;
+    status.classList.toggle("error", !!isError);
+    status.classList.remove("hidden");
+  };
+
+  const fit = () => {
+    // The picker canvas is laid out by flexbox, so its backing store has to be
+    // resized to match or the tiles come out stretched.
+    cv.width = cv.clientWidth;
+    cv.height = cv.clientHeight;
+    picker.draw();
+  };
+
+  picker.onChange = (sel, span) => {
+    if (!sel) {
+      sizeEl.textContent = "";
+      sizeEl.classList.remove("too-big");
+      lockBtn.disabled = true;
+      return;
+    }
+    const area = span.w * span.h;
+    sizeEl.textContent = `${span.w.toFixed(1)} x ${span.h.toFixed(1)} km`;
+    // Warn before the download, not after: a 10x10 km extract is minutes of
+    // waiting and a graph too big to simulate smoothly.
+    sizeEl.classList.toggle("too-big", area > 25);
+    lockBtn.disabled = busy || area > 25;
+  };
+
+  const open = () => {
+    overlay.classList.remove("hidden");
+    picker.active = true;
+    say(null);
+    requestAnimationFrame(fit);
+  };
+  const close = () => {
+    picker.active = false;
+    overlay.classList.add("hidden");
+  };
+
+  document.getElementById("menu-osm")?.addEventListener("click", open);
+  document.getElementById("osm-cancel").addEventListener("click", close);
+  document.getElementById("osm-clear").addEventListener("click", () => picker.clearSelection());
+  window.addEventListener("resize", () => { if (picker.active) fit(); });
+
+  lockBtn.addEventListener("click", async () => {
+    if (!picker.sel || busy) return;
+    busy = true;
+    lockBtn.disabled = true;
+    const name = (document.getElementById("osm-name").value || "osm-import").trim();
+    try {
+      const r = await importArea(picker.sel, name, (m) => say(m));
+      // The backend has already swapped the running map, so the canvas has to
+      // throw away everything it derived from the old one.
+      await reloadMap();
+      fitView();
+      close();
+      UI.log(`Imported ${r.roads} roads from OpenStreetMap as "${name}"`);
+      UI.toast(r.warning ? `Imported, but: ${r.warning}` : "Map imported");
+    } catch (err) {
+      say(String(err.message || err), true);
+    } finally {
+      busy = false;
+      lockBtn.disabled = !picker.sel;
+    }
+  });
+}
+
 async function boot() {
   initInput();
+  initOsmPicker();
   canvas.addEventListener("click", (e) => {
     if (dragMoved) return;                       // a pan, not a click
     const r = canvas.getBoundingClientRect();

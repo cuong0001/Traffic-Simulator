@@ -13,6 +13,23 @@
 <main id="stage">
   <canvas id="map"></canvas>
 
+  <!-- ======= OpenStreetMap area picker ======= -->
+  <!-- Shown over the simulation, not instead of it: the city keeps running
+       underneath, so cancelling costs nothing. -->
+  <div id="osm-overlay" class="hidden">
+    <canvas id="osm-canvas"></canvas>
+    <div id="osm-bar">
+      <span class="osm-title">PICK AN AREA</span>
+      <span id="osm-hint">Drag to select · Shift+drag to pan · Scroll to zoom</span>
+      <span id="osm-size"></span>
+      <input id="osm-name" type="text" value="osm-import" spellcheck="false" size="12">
+      <button id="osm-lock" type="button" disabled>Lock map</button>
+      <button id="osm-clear" type="button">Clear</button>
+      <button id="osm-cancel" type="button">Cancel</button>
+    </div>
+    <div id="osm-status" class="hidden"></div>
+  </div>
+
   <!-- ======= Top menu bar ======= -->
   <nav id="menubar">
     <span class="brand">URBAN TRAFFIC</span>
@@ -27,6 +44,8 @@
 
     <div class="menu-item">Map
       <ul class="dropdown">
+        <li><button id="menu-osm" type="button">Sync from OpenStreetMap…</button></li>
+        <li class="dd-sep"></li>
         <li><button data-panel="map-details" type="button">Map Details</button></li>
         <li><button data-panel="adjust" type="button">Adjust Simulation</button></li>
         <li class="dd-sep"></li>

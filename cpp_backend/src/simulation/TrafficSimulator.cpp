@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <sstream>
+#include <fstream>
 #include <memory>
 
 #include "core/Building.hpp"
@@ -950,6 +951,45 @@ bool TrafficSimulator::save_map(const std::string& name) {
     } catch (const std::exception&) {
         return false;
     }
+}
+
+TrafficSimulator::ImportResult TrafficSimulator::import_map(
+        const std::string& name, const std::string& geojson) {
+    if (!safe_map_name(name)) return {false, "bad map name"};
+    if (geojson.empty()) return {false, "empty document"};
+
+    // Parse into a graph of its own BEFORE touching anything. An import that
+    // turns out to be malformed, or to contain no drivable roads, must leave
+    // the city that is already running exactly as it was.
+    std::unique_ptr<TrafficGraph> candidate(new TrafficGraph());
+    try {
+        MapLoader::load_from_geojson_string(*candidate, geojson, "imported map");
+    } catch (const std::exception& e) {
+        return {false, e.what()};
+    }
+    const std::string warning = MapLoader::validate(*candidate);
+    candidate.reset();   // load() below re-parses; this was only the gate
+
+    // Known good, so it is worth keeping. Writing it out means the area can be
+    // reloaded later from the map list without going back to OpenStreetMap.
+    const std::string path = "data/maps/" + name + ".geojson";
+    try {
+        std::ofstream out(path, std::ios::binary);
+        if (!out) return {false, "could not write " + path};
+        out << geojson;
+        out.close();
+    } catch (const std::exception& e) {
+        return {false, e.what()};
+    }
+
+    try {
+        load(path);
+    } catch (const std::exception& e) {
+        return {false, e.what()};
+    }
+    // Loaded. `warning` is empty unless validate() had something to say, in
+    // which case the map is usable but worth complaining about.
+    return {true, warning};
 }
 
 bool TrafficSimulator::load_map(const std::string& name) {

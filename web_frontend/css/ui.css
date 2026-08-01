@@ -402,3 +402,77 @@ select { padding: 6px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ======= OpenStreetMap area picker ======================================== */
+/* Sits over the simulation rather than replacing it, so Cancel is free. */
+#osm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #dfe6e9;
+}
+#osm-overlay.hidden { display: none; }
+
+#osm-canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#osm-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12px;
+}
+#osm-bar .osm-title {
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  color: #7ee787;
+}
+#osm-hint { opacity: .75; }
+#osm-size { margin-left: auto; font-variant-numeric: tabular-nums; }
+#osm-size.too-big { color: #fca5a5; font-weight: 700; }
+
+#osm-bar input {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+#osm-bar button {
+  background: #334155;
+  border: 1px solid #475569;
+  color: #e2e8f0;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#osm-bar button:hover:not(:disabled) { background: #475569; }
+#osm-bar button:disabled { opacity: .45; cursor: not-allowed; }
+#osm-lock:not(:disabled) { background: #16a34a; border-color: #22c55e; font-weight: 700; }
+
+#osm-status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(15, 23, 42, .92);
+  color: #e2e8f0;
+  padding: 14px 22px;
+  border-radius: 8px;
+  font-size: 13px;
+  max-width: 70%;
+  text-align: center;
+}
+#osm-status.hidden { display: none; }
+#osm-status.error { background: rgba(127, 29, 29, .95); }

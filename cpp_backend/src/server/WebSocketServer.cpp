@@ -186,26 +186,86 @@ void HttpServer::run() {
     }
 }
 
+// Pull one header value out of a raw request head. Header names are
+// case-insensitive per RFC 7230, so the search is done on a lowercased copy
+// while the value is taken from the original.
+static std::string header_value(const std::string& head, const std::string& name) {
+    std::string lower = head;
+    for (auto& c : lower) c = static_cast<char>(::tolower(c));
+    const auto at = lower.find("\r\n" + name + ":");
+    if (at == std::string::npos) return "";
+    const auto start = at + name.size() + 3;
+    const auto end = lower.find("\r\n", start);
+    if (end == std::string::npos) return "";
+    std::string v = head.substr(start, end - start);
+    const auto b = v.find_first_not_of(" \t");
+    if (b == std::string::npos) return "";
+    const auto e = v.find_last_not_of(" \t");
+    return v.substr(b, e - b + 1);
+}
+
 void HttpServer::handle_client(long long client_handle) {
     const socket_t client_fd = static_cast<socket_t>(client_handle);
-    char buffer[8192];
+    char chunk[8192];
+    // Carried across loop iterations: one recv() on a keep-alive connection can
+    // pull in the front of the NEXT request, and discarding that would stall.
+    std::string pending;
 
     for (int served = 0; served < kMaxKeepAliveRequests; ++served) {
+        // ---- read until the head is complete ------------------------------
+        std::size_t head_end = pending.find("\r\n\r\n");
+        while (head_end == std::string::npos) {
 #ifdef _WIN32
-        const int n = ::recv(client_fd, buffer, static_cast<int>(sizeof(buffer) - 1), 0);
+            const int n = ::recv(client_fd, chunk, static_cast<int>(sizeof(chunk)), 0);
 #else
-        const ssize_t n = ::recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+            const ssize_t n = ::recv(client_fd, chunk, sizeof(chunk), 0);
 #endif
-        if (n <= 0) return;
-        buffer[n] = '\0';
+            if (n <= 0) return;
+            pending.append(chunk, static_cast<std::size_t>(n));
+            if (pending.size() > kMaxBodyBytes) return;   // headers with no end
+            head_end = pending.find("\r\n\r\n");
+        }
+        const std::string head = pending.substr(0, head_end + 4);
 
-        std::istringstream request(buffer);
+        std::istringstream request(head);
         std::string method, target, version;
         request >> method >> target >> version;
         if (method.empty() || target.empty()) {
             send_response(client_fd, "400 Bad Request", "text/plain", "bad request", false);
             return;
         }
+
+        // ---- read the body, when the head announced one -------------------
+        // Needed for map import: an OSM extract is megabytes, far past what a
+        // query string can carry, so it arrives as a POST body.
+        std::size_t content_length = 0;
+        {
+            const std::string cl = header_value(head, "content-length");
+            if (!cl.empty()) {
+                try {
+                    content_length = static_cast<std::size_t>(std::stoull(cl));
+                } catch (const std::exception&) {
+                    content_length = 0;
+                }
+            }
+        }
+        if (content_length > kMaxBodyBytes) {
+            send_response(client_fd, "413 Payload Too Large", "application/json",
+                          "{\"ok\":false,\"error\":\"body too large\"}", false);
+            return;
+        }
+        while (pending.size() < head.size() + content_length) {
+#ifdef _WIN32
+            const int n = ::recv(client_fd, chunk, static_cast<int>(sizeof(chunk)), 0);
+#else
+            const ssize_t n = ::recv(client_fd, chunk, sizeof(chunk), 0);
+#endif
+            if (n <= 0) return;   // client vanished mid-body
+            pending.append(chunk, static_cast<std::size_t>(n));
+        }
+        const std::string body = pending.substr(head.size(), content_length);
+        pending.erase(0, head.size() + content_length);
+
 
         std::string path = target;
         std::string query;
@@ -215,22 +275,16 @@ void HttpServer::handle_client(long long client_handle) {
             query = target.substr(qm + 1);
         }
 
-        bool client_wants_close = false;
-        {
-            std::string head(buffer, static_cast<std::size_t>(n));
-            for (auto& c : head) c = static_cast<char>(::tolower(c));
-            const auto pos = head.find("connection:");
-            if (pos != std::string::npos && head.find("close", pos) < head.find("\r\n", pos))
-                client_wants_close = true;
-        }
+        const std::string conn = header_value(head, "connection");
+        bool client_wants_close = conn == "close" || conn == "Close" || conn == "CLOSE";
         const bool keep_alive = !client_wants_close && served + 1 < kMaxKeepAliveRequests &&
                                 version.find("1.1") != std::string::npos;
 
         // ---- API ----
         if (path.rfind("/api/", 0) == 0) {
             try {
-                const std::string body = api_handler_(path, parse_query(query));
-                send_response(client_fd, "200 OK", "application/json", body, keep_alive);
+                const std::string reply = api_handler_(path, parse_query(query), body);
+                send_response(client_fd, "200 OK", "application/json", reply, keep_alive);
             } catch (const std::exception& e) {
                 send_response(client_fd, "400 Bad Request", "application/json",
                               std::string("{\"error\":\"") + e.what() + "\"}", keep_alive);
