@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <unordered_map>
 #include <filesystem>
@@ -351,6 +352,45 @@ namespace {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Published state snapshot.
+//
+// /api/state used to serialise the whole world while holding mtx_, so every
+// poll from the browser stalled a simulation tick -- and the UI polls twice a
+// second, per open tab. The work is identical whether one tab asks or six, so
+// do it once on a schedule and hand out the result.
+//
+// The snapshot is a shared_ptr<const string>: readers take a copy of the
+// pointer under a tiny mutex and then read the string with no lock at all,
+// because nothing can mutate a string that is already published. The publisher
+// builds the next one separately and swaps it in.
+// ---------------------------------------------------------------------------
+void TrafficSimulator::start_publishing() {
+    if (publishing_.exchange(true)) return;   // already running
+    // Detached, like the tick thread in main(): the simulator is a singleton
+    // that lives as long as the process, so there is no shutdown to join at.
+    std::thread(&TrafficSimulator::publish_loop, this).detach();
+}
+
+void TrafficSimulator::publish_loop() {
+    while (publishing_.load()) {
+        auto fresh = std::make_shared<const std::string>(state_json());
+        {
+            std::lock_guard<std::mutex> lock(snapshot_mtx_);
+            snapshot_ = std::move(fresh);
+        }
+        // 20 Hz: faster than the UI polls, so a request never waits for the
+        // next build, and slow enough that publishing costs a few percent of
+        // one core rather than competing with the simulation.
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+
+std::shared_ptr<const std::string> TrafficSimulator::state_snapshot() {
+    std::lock_guard<std::mutex> lock(snapshot_mtx_);
+    return snapshot_;
+}
+
 std::string TrafficSimulator::state_json() {
     std::lock_guard<std::mutex> lock(mtx_);
     std::ostringstream os;
@@ -584,6 +624,28 @@ bool TrafficSimulator::set_vehicle_algorithm(const std::string& id,
     return false;
 }
 
+namespace {
+// Road ids of the part of the route still to be driven, for the selection card
+// to highlight. Kept out of state_json on purpose: a route can be 60+ roads,
+// and multiplying that by every vehicle on screen would dwarf the rest of the
+// payload for data nobody is looking at except on the one selected vehicle.
+std::string route_ids_json(const Vehicle& v) {
+    std::ostringstream os;
+    os << "[";
+    bool first = true;
+    const auto& route = v.get_route();
+    for (std::size_t k = static_cast<std::size_t>(std::max(0, v.get_route_index()));
+         k < route.size(); ++k) {
+        if (!route[k]) continue;
+        if (!first) os << ",";
+        first = false;
+        os << jstr(route[k]->id);
+    }
+    os << "]";
+    return os.str();
+}
+}  // namespace
+
 std::string TrafficSimulator::vehicle_detail_json(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     for (Vehicle* v : vehicles_) {
@@ -599,6 +661,7 @@ std::string TrafficSimulator::vehicle_detail_json(const std::string& id) {
            << ",\"destination\":" << jstr(v->destination ? v->destination->name : "")
            << ",\"route_len\":" << v->get_route().size()
            << ",\"route_index\":" << v->get_route_index()
+           << ",\"route\":" << route_ids_json(*v)
            << ",\"arrived\":" << (v->has_reached_destination() ? "true" : "false")
            << "}";
         return os.str();

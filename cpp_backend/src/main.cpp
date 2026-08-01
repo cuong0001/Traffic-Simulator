@@ -56,6 +56,10 @@ int main(int argc, char** argv) {
         }
     }).detach();
 
+    // Publisher: rebuilds the /api/state payload 20x a second so serving it
+    // costs a pointer copy instead of a lock on the simulation.
+    sim.start_publishing();
+
     // REST API dispatch.
     auto api = [&sim](const std::string& p, const HttpServer::Params& params) -> std::string {
         auto get = [&](const std::string& key, const std::string& def = "") {
@@ -63,7 +67,13 @@ int main(int argc, char** argv) {
             return it == params.end() ? def : it->second;
         };
         if (p == "/api/map") return sim.map_json();
-        if (p == "/api/state") return sim.state_json();
+        if (p == "/api/state") {
+            // Lock-free: served from the published snapshot, so a heavy tick
+            // can never stall the browser. The direct call is only the cold
+            // start, before the publisher has produced anything.
+            if (auto snap = sim.state_snapshot()) return *snap;
+            return sim.state_json();
+        }
         if (p == "/api/spawn") {
             const std::string id = sim.spawn_vehicle(get("from"), get("to"), get("type", "car"));
             return "{\"id\":\"" + id + "\"}";

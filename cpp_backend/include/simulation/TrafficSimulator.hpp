@@ -17,9 +17,12 @@ and every leader is snapshotted first -- otherwise the first vehicle to move
 would change what the second one sees inside the same tick.
 */
 
+#include <atomic>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -121,6 +124,16 @@ public:
 
     // JSON for the web API. Each locks the simulation internally.
     std::string state_json();  // GET /api/state
+
+    // The published copy of state_json(), refreshed on a background thread and
+    // served to HTTP threads WITHOUT taking the simulation mutex. Serialising
+    // inside mtx_ means every browser poll blocks a tick, and the work is the
+    // same whether one tab asks or six -- so do it once on a schedule and hand
+    // out the result. Null until the first snapshot has been built.
+    std::shared_ptr<const std::string> state_snapshot();
+
+    // Start the publisher thread. Called once from main().
+    void start_publishing();
     std::string map_json();    // GET /api/map
 
 private:
@@ -169,6 +182,14 @@ private:
     std::pair<Vehicle*, double> lead_in_lane(Vehicle* v) const;
     double accel_in_lane(Vehicle* v, int lane) const;
     Vehicle* follower_in_lane(Vehicle* v, int lane) const;
+    // ---- published state snapshot ------------------------------------------
+    void publish_loop();                        ///< publisher thread body
+    // A mutex of its OWN. Reusing mtx_ would defeat the entire point: readers
+    // would still queue behind the tick they were meant to stop blocking.
+    std::mutex snapshot_mtx_;
+    std::shared_ptr<const std::string> snapshot_;
+    std::atomic<bool> publishing_{false};
+
     void solve_lane_changes(double sim_time);          // MOBIL
     void solve_junctions(double dt, double sim_time);  // yielding
     void solve_gridlock(double sim_time);              // forced / rescue
