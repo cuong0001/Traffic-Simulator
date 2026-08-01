@@ -1217,7 +1217,8 @@ function initOsmPicker() {
       await reloadMap();
       fitView();
       close();
-      UI.log(`Imported ${r.roads} roads from OpenStreetMap as "${name}"`);
+      UI.log(`Imported ${r.roads} roads and ${r.signals} traffic signals ` +
+             `from OpenStreetMap as "${name}"`);
       UI.toast(r.warning ? `Imported, but: ${r.warning}` : "Map imported");
     } catch (err) {
       say(String(err.message || err), true);
