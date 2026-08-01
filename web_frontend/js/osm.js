@@ -293,11 +293,23 @@ export async function fetchOverpass(bbox, onProgress) {
 // reads: LineString features whose properties carry the OSM tags.
 export function overpassToGeoJson(osm) {
   const nodes = new Map();
+  const features = [];
   for (const el of osm.elements || []) {
-    if (el.type === "node") nodes.set(el.id, [el.lon, el.lat]);
+    if (el.type !== "node") continue;
+    nodes.set(el.id, [el.lon, el.lat]);
+    // Traffic signals ride along in the reply already: they are vertices of the
+    // ways we asked for, and `>` pulls them in with their tags. MapLoader reads
+    // them from Point features, so emitting them here is the difference between
+    // an imported city that has working lights and one that has none.
+    if (el.tags && el.tags.highway === "traffic_signals") {
+      features.push({
+        type: "Feature",
+        properties: { "@id": `node/${el.id}`, highway: "traffic_signals" },
+        geometry: { type: "Point", coordinates: [el.lon, el.lat] },
+      });
+    }
   }
 
-  const features = [];
   for (const el of osm.elements || []) {
     if (el.type !== "way" || !el.nodes || el.nodes.length < 2) continue;
     const coords = [];
@@ -337,11 +349,12 @@ export async function importArea(bbox, name, onProgress) {
 
   const osm = await fetchOverpass(bbox, onProgress);
   const geo = overpassToGeoJson(osm);
-  if (!geo.features.length) {
+  const roads = geo.features.filter((f) => f.geometry.type === "LineString").length;
+  if (!roads) {
     throw new Error("No drivable roads in that area — try somewhere with streets on it");
   }
 
-  onProgress?.(`Sending ${geo.features.length} roads to the simulator…`);
+  onProgress?.(`Sending ${roads} roads to the simulator…`);
   const res = await fetch(`/api/importMap?name=${encodeURIComponent(name)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -349,5 +362,5 @@ export async function importArea(bbox, name, onProgress) {
   });
   const out = await res.json();
   if (!out.ok) throw new Error(out.error || "the simulator refused the map");
-  return { roads: geo.features.length, warning: out.warning || "" };
+  return { roads, signals: geo.features.length - roads, warning: out.warning || "" };
 }

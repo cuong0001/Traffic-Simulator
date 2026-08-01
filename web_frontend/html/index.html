@@ -135,7 +135,12 @@
           </select>
         </div>
         <div class="sb-row">
-          <label class="chk"><input type="checkbox" id="chk-random" checked> Random events</label>
+          <label class="chk" title="Accidents, closures, congestion and signal faults fire on their own every 18-45 s">
+            <input type="checkbox" id="chk-random" checked> Random events</label>
+        </div>
+        <div class="sb-row">
+          <label class="chk" title="Keep spawning vehicles up to the cap above">
+            <input type="checkbox" id="chk-autospawn" checked> Auto-spawn traffic</label>
         </div>
       </div>
 
@@ -353,7 +358,9 @@
   </aside>
 
   <!-- ======= EVENTS log box (bottom-left) ======= -->
-  <div class="events" id="eventlog-box">
+  <!-- Starts hidden: it covers the bottom-left of the map, and most of the
+       time nobody is reading it. Menu > View > Event Log brings it back. -->
+  <div class="events hidden" id="eventlog-box">
     <div class="event-log-header"><b>EVENTS</b></div>
     <div class="event-log-body"><ul id="log"></ul></div>
   </div>

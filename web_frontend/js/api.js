@@ -60,6 +60,7 @@ export const Sim = {
 
     // traffic generation
     setAuto:      (on)    => control("/api/auto", { on: on ? 1 : 0 }),
+    setRandomEvents: (on) => control("/api/randomEvents", { on: on ? 1 : 0 }),
     setTarget:    (value) => control("/api/target", { value }),
     setSpawnRate: (value) => control("/api/spawnRate", { value }),
     setAlgorithm: (name)  => control("/api/algorithm", { name }),

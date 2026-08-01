@@ -118,9 +118,22 @@ int main(int argc, char** argv) {
             if (!x.empty()) sim.set_speed(std::stod(x));
             return "{\"ok\":true}";
         }
-        if (p == "/api/auto" || p == "/api/randomEvents") {
-            const std::string on = get("on");
-            sim.set_auto_spawn(on == "1" || on == "true");
+        // Two separate switches that were wired to the same one. Auto-spawn
+        // keeps the city populated; random events are what happens TO it.
+        // Turning off traffic generation should not also stop accidents.
+        auto flag = [&](const std::string& key) {
+            const std::string v = get(key);
+            return v == "1" || v == "true";
+        };
+        if (p == "/api/auto") {
+            sim.set_auto_spawn(flag("on"));
+            return "{\"ok\":true}";
+        }
+        if (p == "/api/randomEvents") {
+            // `enabled` is the reference's parameter name; `on` matches every
+            // other endpoint here. Accept whichever the caller sent.
+            sim.set_random_events(params.count("enabled") ? flag("enabled")
+                                                          : flag("on"));
             return "{\"ok\":true}";
         }
 
