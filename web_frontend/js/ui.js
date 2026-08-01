@@ -128,6 +128,21 @@ export function isArmed() { return tool !== null; }
 // building" would draw a road endpoint marker under the cursor.
 export function isAddingRoad() { return tool === "add-road"; }
 
+// The OSM picker covers the whole stage, and the event log floats above it.
+// Tuck it away while the picker is open and put it back exactly as it was.
+let logWasVisible = false;
+export function suspendEventLog() {
+  const box = $("eventlog-box");
+  if (!box) return;
+  logWasVisible = !box.classList.contains("hidden");
+  box.classList.add("hidden");
+}
+export function restoreEventLog() {
+  const box = $("eventlog-box");
+  if (!box || !logWasVisible) return;
+  box.classList.remove("hidden");
+}
+
 // The first endpoint of an in-progress "Add Road", or null. The canvas asks so
 // it can draw the rubber-band line to the cursor; without it the user picks the
 // second point blind and only finds out what they connected afterwards.
@@ -381,7 +396,36 @@ function drawChart() {
 // ---------------------------------------------------------------------------
 // Per-poll refresh
 // ---------------------------------------------------------------------------
+// Mirror the simulator's own settings into the controls. Only touched when the
+// user is not interacting with the control in question -- overwriting a number
+// someone is halfway through typing is worse than showing a stale one.
+let settingsSynced = false;
+function syncSettings(state) {
+    if (!state) return;
+    const target = $("target-input");
+    if (target && document.activeElement !== target &&
+        state.targetVehicles !== undefined &&
+        Number(target.value) !== state.targetVehicles) {
+        // After the first sync, only follow the server when the user is not the
+        // one who changed it -- otherwise a slow round trip snaps the box back.
+        if (!settingsSynced) target.value = state.targetVehicles;
+    }
+    const rate = $("spawnrate-slider");
+    if (rate && !settingsSynced && state.spawnRate !== undefined) {
+        rate.value = state.spawnRate;
+        $("spawnrate-val").textContent = `${Number(state.spawnRate).toFixed(1)}/s`;
+    }
+    const algo = $("algo-select");
+    if (algo && !settingsSynced && state.algorithm) algo.value = state.algorithm;
+    const auto = $("chk-random");
+    if (auto && !settingsSynced && state.autoSpawn !== undefined) {
+        auto.checked = !!state.autoSpawn;
+    }
+    settingsSynced = true;
+}
+
 export function update(state) {
+  syncSettings(state);
   const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
   if (!state) {
     set("hud-time", "--:--");
@@ -468,7 +512,7 @@ export function init(h) {
   });
   $("chk-random").addEventListener("change", (e) => {
     Sim.setAuto(e.target.checked);
-    log(`Random events ${e.target.checked ? "on" : "off"}`);
+    log(`Auto-spawn ${e.target.checked ? "on" : "off"}`);
   });
 
   const rate = $("spawnrate-slider");

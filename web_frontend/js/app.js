@@ -751,22 +751,31 @@ function drawRoadStatus() {
 
 // The selected vehicle's remaining route, drawn under the traffic so it reads
 // as a path on the map rather than something floating above it.
+// Two passes per road, like the reference: a wide translucent halo so the path
+// is findable at a glance, and a narrow bright core so it stays readable where
+// the route doubles back on itself or runs beside another highlighted road.
+// One medium stroke does neither job well.
 function drawRouteHighlight() {
   if (!routeRoadIds.length) return;
   ctx.lineCap = "round";
-  ctx.strokeStyle = "rgba(56,189,248,.55)";
-  for (const id of routeRoadIds) {
-    const r = roadById[id];
-    if (!r) continue;
-    const a = nodeById[r.from], b = nodeById[r.to];
-    if (!a || !b) continue;
-    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
-    ctx.lineWidth = Math.max(2, (roadWOf[base] || roadW) * T.s * 0.7);
+  ctx.strokeStyle = "#3f8fe0";
+  const halo = Math.max(6, 14 * US * T.s);
+  const core = Math.max(2, 5 * US * T.s);
+  for (const pass of [{ w: halo, a: 0.30 }, { w: core, a: 0.90 }]) {
+    ctx.globalAlpha = pass.a;
+    ctx.lineWidth = pass.w;
     ctx.beginPath();
-    ctx.moveTo(wx(a.x), wy(a.y));
-    ctx.lineTo(wx(b.x), wy(b.y));
+    for (const id of routeRoadIds) {
+      const r = roadById[id];
+      if (!r) continue;
+      const a = nodeById[r.from], b = nodeById[r.to];
+      if (!a || !b) continue;
+      ctx.moveTo(wx(a.x), wy(a.y));
+      ctx.lineTo(wx(b.x), wy(b.y));
+    }
     ctx.stroke();
   }
+  ctx.globalAlpha = 1;
 }
 
 // ---- render loop + fps meter ----
@@ -930,6 +939,8 @@ async function poll() {
     simState = null;
     UI.log("Simulation offline");
   }
+  // Keep the highlighted route in step with the vehicle that owns it.
+  if (routeVehicleId) refreshRoute();
   UI.update(simState);
 }
 
@@ -1072,12 +1083,30 @@ function onMapClick(worldX, worldY) {
 async function selectVehicleRoute(id) {
   routeVehicleId = id;
   routeRoadIds = [];
+  lastRouteFetch = 0;                       // fetch immediately
+  await refreshRoute();
+}
+
+// The route shortens as the vehicle drives, and changes outright when an event
+// makes it replan. Fetching once at click time leaves the highlight showing
+// roads already driven, and pointing the wrong way entirely after a reroute --
+// so re-ask while the vehicle stays selected. Throttled, because this is the
+// one call that does take the simulation lock.
+let lastRouteFetch = 0;
+const ROUTE_REFRESH_MS = 400;
+
+async function refreshRoute() {
+  const id = routeVehicleId;
+  if (!id) return;
+  const now = performance.now();
+  if (now - lastRouteFetch < ROUTE_REFRESH_MS) return;
+  lastRouteFetch = now;
   try {
     const d = await Sim.vehicleDetail(id);
     if (routeVehicleId !== id) return;      // selection changed while waiting
     routeRoadIds = Array.isArray(d?.route) ? d.route : [];
   } catch {
-    routeRoadIds = [];
+    /* keep the previous route rather than blinking it away on one bad poll */
   }
 }
 
@@ -1161,12 +1190,14 @@ function initOsmPicker() {
   const open = () => {
     overlay.classList.remove("hidden");
     picker.active = true;
+    UI.suspendEventLog();       // it floats above the overlay otherwise
     say(null);
     requestAnimationFrame(fit);
   };
   const close = () => {
     picker.active = false;
     overlay.classList.add("hidden");
+    UI.restoreEventLog();
   };
 
   document.getElementById("menu-osm")?.addEventListener("click", open);
