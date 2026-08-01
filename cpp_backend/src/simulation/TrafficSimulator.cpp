@@ -405,10 +405,8 @@ std::string TrafficSimulator::state_json() {
     os << "\"targetVehicles\":" << target_vehicles_ << ",";
     os << "\"spawnRate\":" << spawn_rate_ << ",";
     os << "\"algorithm\":" << jstr(algorithm_) << ",";
-    // Named for what it actually is. /api/randomEvents is an alias for
-    // /api/auto and there is no separate random-event generator in this
-    // simulator, so reporting a "randomEvents" flag would be a lie.
     os << "\"autoSpawn\":" << (auto_spawn_ ? "true" : "false") << ",";
+    os << "\"randomEvents\":" << (controller_.random_events() ? "true" : "false") << ",";
 
     // vehicles
     os << "\"vehicles\":[";

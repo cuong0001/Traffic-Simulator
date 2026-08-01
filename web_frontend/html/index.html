@@ -135,10 +135,12 @@
           </select>
         </div>
         <div class="sb-row">
-          <!-- This toggles auto-spawn. It was labelled "Random events", but /api/auto
-               and /api/randomEvents set the same flag and no random-event
-               generator exists, so the old label described nothing. -->
-          <label class="chk"><input type="checkbox" id="chk-random" checked> Auto-spawn traffic</label>
+          <label class="chk" title="Accidents, closures, congestion and signal faults fire on their own every 18-45 s">
+            <input type="checkbox" id="chk-random" checked> Random events</label>
+        </div>
+        <div class="sb-row">
+          <label class="chk" title="Keep spawning vehicles up to the cap above">
+            <input type="checkbox" id="chk-autospawn" checked> Auto-spawn traffic</label>
         </div>
       </div>
 

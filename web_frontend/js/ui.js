@@ -417,9 +417,13 @@ function syncSettings(state) {
     }
     const algo = $("algo-select");
     if (algo && !settingsSynced && state.algorithm) algo.value = state.algorithm;
-    const auto = $("chk-random");
-    if (auto && !settingsSynced && state.autoSpawn !== undefined) {
-        auto.checked = !!state.autoSpawn;
+    const rnd = $("chk-random");
+    if (rnd && !settingsSynced && state.randomEvents !== undefined) {
+        rnd.checked = !!state.randomEvents;
+    }
+    const spawn = $("chk-autospawn");
+    if (spawn && !settingsSynced && state.autoSpawn !== undefined) {
+        spawn.checked = !!state.autoSpawn;
     }
     settingsSynced = true;
 }
@@ -511,6 +515,10 @@ export function init(h) {
     Sim.setSpeed(factor);
   });
   $("chk-random").addEventListener("change", (e) => {
+    Sim.setRandomEvents(e.target.checked);
+    log(`Random events ${e.target.checked ? "on" : "off"}`);
+  });
+  $("chk-autospawn").addEventListener("change", (e) => {
     Sim.setAuto(e.target.checked);
     log(`Auto-spawn ${e.target.checked ? "on" : "off"}`);
   });
