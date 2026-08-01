@@ -294,10 +294,10 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
 }
 
 // ---- gridlock relief ----------------------------------------------------
-void Vehicle::rescue_to(std::size_t new_index) {
-    if (new_index >= route.size()) return;
+bool Vehicle::rescue_to(std::size_t new_index) {
+    if (new_index >= route.size()) return false;
     Road* dest = route[new_index];
-    if (!dest) return;
+    if (!dest) return false;
 
     int dest_lane = lane;
     const std::vector<int> ok = allowed_lanes(dest->lanes);
@@ -306,7 +306,7 @@ void Vehicle::rescue_to(std::size_t new_index) {
     }
     // Breaking the deadlock must not mean materialising inside someone else.
     // Leave the stuck counters alone so the next tick tries again.
-    if (!entry_slot_free(*dest, dest_lane, 0.0, length_meters())) return;
+    if (!entry_slot_free(*dest, dest_lane, 0.0, length_meters())) return false;
 
     if (current_road) current_road->remove_vehicle(this);
     route_index = static_cast<int>(new_index);
@@ -318,6 +318,7 @@ void Vehicle::rescue_to(std::size_t new_index) {
     stuck_time = 0.0;
     zone_wait_ = 0.0;
     current_road->add_vehicle(this);
+    return true;
 }
 
 // ---- simulator-driven movement ------------------------------------------

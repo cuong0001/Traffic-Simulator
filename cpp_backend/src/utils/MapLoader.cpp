@@ -121,13 +121,23 @@ void load_road(TrafficGraph& graph, const json& props, const std::string& source
     const int capacity = static_cast<int>(num_prop(props, "capacity", 12));
     const int lanes = static_cast<int>(num_prop(props, "lanes", 2));
 
+    // A road is part of a roundabout either because it says so, or because both
+    // its ends are nodes zoned "roundabout" -- a ring is chopped into several
+    // short segments, and traffic already going round one must not give way to
+    // traffic going round the next.
+    const bool circulating =
+        bool_prop(props, "roundabout", false) ||
+        (from_it->second->is_roundabout && to_it->second->is_roundabout);
+
     // The Road constructor wires the edge into both nodes' adjacency lists.
     graph.edges[id] = new Road(id, from_it->second, to_it->second, lanes, speed,
                                capacity, oneway, length);
+    graph.edges[id]->is_internal = circulating;
     if (!oneway) {
         // Two-way street: expand into the reverse edge "id_r".
         graph.edges[id + "_r"] = new Road(id + "_r", to_it->second, from_it->second,
                                           lanes, speed, capacity, false, length);
+        graph.edges[id + "_r"]->is_internal = circulating;
     }
 }
 
@@ -273,6 +283,7 @@ struct OsmWay {
     double speed_kmh = 30.0;
     int lanes_per_dir = 1;
     bool oneway = false;             // geometry already oriented forward
+    bool roundabout = false;         // junction=roundabout: a circulating way
 };
 
 // Add an OSM building (Polygon/MultiPolygon of lon/lat) to the graph, projecting
@@ -354,7 +365,12 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         w.speed_kmh = num_prop(props, "maxspeed", default_speed_kmh(w.highway));
 
         const std::string oneway = str_prop(props, "oneway");
+        // A roundabout arrives as an ordinary one-way way carrying
+        // junction=roundabout. Keep the fact: OSM chops the ring into several
+        // short ways, so without it the nodes between them look like plain
+        // crossings and the traffic circulating inside gives way to itself.
         const bool roundabout = str_prop(props, "junction") == "roundabout";
+        w.roundabout = roundabout;
         const bool reversed = oneway == "-1";
         w.oneway = reversed || roundabout || oneway == "yes" || oneway == "1" ||
                    oneway == "true";
@@ -463,12 +479,14 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
 
     auto add_edge = [&](const std::string& id, const std::string& from,
                         const std::string& to, double len, double speed, int cap,
-                        int lanes, bool oneway) {
+                        int lanes, bool oneway, bool circulating) {
         Intersection* a = graph.intersections[from];
         Intersection* b = graph.intersections[to];
         graph.edges[id] = new Road(id, a, b, lanes, speed, cap, oneway, len);
+        graph.edges[id]->is_internal = circulating;
         if (!oneway) {
             graph.edges[id + "_r"] = new Road(id + "_r", b, a, lanes, speed, cap, false, len);
+            graph.edges[id + "_r"]->is_internal = circulating;
         }
     };
 
@@ -507,10 +525,36 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
                 std::string edge_id = "w" + w.id + "_" + std::to_string(edge_counter++);
                 while (graph.edges.count(edge_id)) edge_id += "x";  // duplicate way in file
                 add_edge(edge_id, prev_node, cur_node, len, w.speed_kmh,
-                         capacity_for(w.lanes_per_dir, len), w.lanes_per_dir, w.oneway);
+                         capacity_for(w.lanes_per_dir, len), w.lanes_per_dir,
+                         w.oneway, w.roundabout);
                 prev_node = cur_node;
             }
             seg_start = i;
+        }
+    }
+
+    // ---- mark the joins INSIDE a roundabout ---------------------------------
+    // A node counts as inside the ring only when every road touching it
+    // circulates. Those are the seams where OSM happened to end one way and
+    // start the next, and nothing crosses there -- so no arbitration happens
+    // and the ring cannot give way to itself.
+    //
+    // Where an approach road meets the ring, some incident road is NOT
+    // circulating, so the node stays an ordinary crossing. That is the point:
+    // entering traffic has to give way, and only a crossing arbitrates.
+    {
+        std::unordered_map<Intersection*, std::pair<int, int>> ring;  // internal, total
+        for (const auto& [id, road] : graph.edges) {
+            if (!road) continue;
+            for (Intersection* n : {road->source, road->target}) {
+                if (!n) continue;
+                auto& c = ring[n];
+                c.second++;
+                if (road->is_internal) c.first++;
+            }
+        }
+        for (const auto& [node, c] : ring) {
+            if (c.first > 0 && c.first == c.second) node->is_roundabout = true;
         }
     }
 
@@ -873,6 +917,10 @@ void MapLoader::write_geojson(const TrafficGraph& graph, const std::string& path
                 {"capacity", road->capacity},
                 {"lanes", road->lanes},
                 {"oneway", road->is_one_way},
+                // Without this a saved map comes back with its roundabouts
+                // demoted to ordinary one-way streets, and the traffic inside
+                // them starts giving way to itself again.
+                {"roundabout", road->is_internal},
             }},
             {"geometry", {{"type", "LineString"}, {"coordinates", json::array({
                 json::array({road->source->x, road->source->y}),

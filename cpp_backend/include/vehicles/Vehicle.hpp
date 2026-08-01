@@ -177,7 +177,9 @@ public:
 
     // Last resort: jump to a later road of the route to break a deadlock.
     // Refuses if the target slot is occupied, so the next tick tries again.
-    void rescue_to(std::size_t new_index);
+    // Returns whether the jump actually happened -- the caller counts rescues,
+    // and a refusal repeated every tick is not a rescue.
+    bool rescue_to(std::size_t new_index);
 
 private:
     static constexpr double kMaxZoneWait = 15.0;  // s of impatience worth tracking

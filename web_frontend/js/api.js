@@ -64,6 +64,9 @@ export const Sim = {
     setTarget:    (value) => control("/api/target", { value }),
     setSpawnRate: (value) => control("/api/spawnRate", { value }),
     setAlgorithm: (name)  => control("/api/algorithm", { name }),
+    // Metres from the junction at which a driver starts deciding whether to
+    // give way. Live, so it can be dialled in against moving traffic.
+    setJunctionApproach: (m) => control("/api/junctionApproach", { value: m }),
 
     // vehicles
     spawn:        (from, to, type) => control("/api/spawn", { from, to, type }),
