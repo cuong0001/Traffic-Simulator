@@ -1,6 +1,8 @@
 #include "core/Graph.hpp"
 
 #include <cmath>
+#include <cstdint>
+#include <unordered_map>
 #include <vector>
 #include "core/Intersection.hpp"
 #include "core/Road.hpp"
@@ -38,7 +40,28 @@ Road* TrafficGraph::get_edge(const std::string& edge_name) const {
     if (it != edges.end()) {
         return it->second;
     }
-    return nullptr; 
+    return nullptr;
+}
+
+void TrafficGraph::reindex() {
+    uint32_t node_idx = 0;
+    for (auto& [id, node] : intersections) {
+        if (node) node->index = node_idx++;
+    }
+
+    uint32_t edge_idx = 0;
+    uint32_t base_idx = 0;
+    std::unordered_map<std::string, uint32_t> base_name_to_id;
+    for (auto& [id, road] : edges) {
+        if (!road) continue;
+        road->index = edge_idx++;
+        const bool is_reverse = id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0;
+        std::string base_id = is_reverse ? id.substr(0, id.size() - 2) : id;
+        auto [it, inserted] = base_name_to_id.try_emplace(base_id, base_idx);
+        if (inserted) base_idx++;
+        road->base_index = it->second;
+        road->reverse_twin = is_reverse;
+    }
 }
 
 // ---------------------------------------------------------------------------

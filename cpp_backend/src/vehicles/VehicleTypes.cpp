@@ -1,11 +1,18 @@
 #include "vehicles/VehicleTypes.hpp"
 
+std::string VehicleFactory::canonical_type(const std::string& type) {
+    if (type == "bus") return "bus";
+    if (type == "emergency") return "emergency";
+    if (type == "motorbike") return "motorbike";
+    return "car";  // default, and explicit "car"
+}
+
 std::unique_ptr<Vehicle> VehicleFactory::create(
-    const std::string& type, 
-    const std::string& id, 
-    double max_speed, 
-    double max_accel, 
-    double max_decel) 
+    const std::string& type,
+    const std::string& id,
+    double max_speed,
+    double max_accel,
+    double max_decel)
 {
     if (type == "bus") {
         return std::make_unique<Bus>(id, max_speed, max_accel, max_decel);

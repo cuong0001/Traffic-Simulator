@@ -28,6 +28,15 @@ public:
     // Lookup
     Road* get_edge(const std::string& edge_name) const;
 
+    // Assign dense integer ids: Intersection::index over 0..intersections.size()-1,
+    // Road::index likewise over edges, and Road::base_index shared by a two-way
+    // street's "id" and "id_r" twin. These back the O(1) lookups in
+    // TrafficSimulator::solve_junctions() -- call this after ANY edit that adds
+    // or removes an intersection or road (the loader calls it once after the
+    // initial load; live map editing must call it again, or new elements keep
+    // the default index 0 and silently alias whatever already owns that slot).
+    void reindex();
+
     // Put a signal on a junction and hand every incoming road a phase group.
     // Approaches are clustered by BEARING into two opposing axes, so the two
     // streams that actually cross take turns instead of the whole junction

@@ -81,4 +81,12 @@ public:
 
     /// Weighted random type: mostly cars, some buses/bikes, rare emergencies.
     static std::string random_type(std::mt19937& rng);
+
+    /// Maps an arbitrary caller-supplied type string to one of the four
+    /// concrete classes create() actually builds ("bus"/"emergency"/
+    /// "motorbike", else "car" -- the same fallback create() uses). Callers
+    /// that need to build a vehicle's id BEFORE construction (spawn_locked)
+    /// use this so the id's type prefix always matches what type() reports
+    /// afterward, instead of echoing back whatever string the caller passed.
+    static std::string canonical_type(const std::string& type);
 };
