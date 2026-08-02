@@ -831,8 +831,8 @@ std::string MapLoader::map_json_string(const TrafficGraph& graph) {
             {"from", road->source->name},
             {"to", road->target->name},
             {"length", road->length},
-            {"lanes", road->lanes},
-            {"speed_kmh", road->speed_limit},
+            {"lanes", road->get_lanes()},
+            {"speed_kmh", road->get_speed_limit()},
             {"oneway", road->is_one_way},
             // Lets the frontend resolve /api/stateBin's per-vehicle base_index
             // back to a road id via a baseIndexToRoadId map, without doubling
@@ -920,9 +920,9 @@ void MapLoader::write_geojson(const TrafficGraph& graph, const std::string& path
                 {"from", road->source->name},
                 {"to", road->target->name},
                 {"length", road->length},
-                {"speed_kmh", road->speed_limit},
+                {"speed_kmh", road->get_speed_limit()},
                 {"capacity", road->capacity},
-                {"lanes", road->lanes},
+                {"lanes", road->get_lanes()},
                 {"oneway", road->is_one_way},
                 // Without this a saved map comes back with its roundabouts
                 // demoted to ordinary one-way streets, and the traffic inside

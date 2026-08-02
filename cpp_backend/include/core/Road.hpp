@@ -32,14 +32,11 @@ public:
     Intersection* source;
     Intersection* target;
 
-    int lanes;
-    double speed_limit;
     int capacity;           //Max number of vehicles this road holds before it is jammed.
     bool is_one_way;        //A two-way street is stored as two Road objects ("id" and "id_r").
     bool is_internal;       //Check if this road belongs to the roundabout.
     double base_weight;     //Travel cost of this road in ideal conditions.
-    double congestion_level;//Measuring traffic density of the road
-    double travel_cost;    //Travel time based on congestion level.
+    double travel_cost;    //Travel time based on congestion level -- see update_travel_cost().
     double length;         //The length of the road.
 
     Geometry* geometry;     //Simulate the road using a function.
@@ -54,13 +51,9 @@ public:
     int signal_group = -1;
     double signal_stop_from_end = 8.0;  // m before the road's end
 
-    //Attributes for TraficEvent:
-    bool is_closed = false;         // use when that event cause close road
-    double event_congestion = 0.0;  // congestion level caused by traffic event
-    double capacity_scale = 1.0;    // Capacity ratio following a traffic event
     static constexpr double kClosedRoadCost = 1e8;
 
-    
+
     //A length <= 0 means "measure it from the endpoints".
     Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,
         int capacity = 12, bool is_one_way = false, double length = 0.0,
@@ -69,7 +62,6 @@ public:
     //Suggest behaviors
     void add_vehicle(Vehicle* vehicle);
     void remove_vehicle(Vehicle* vehicle);
-    double get_congestion_level() const; //If congesttion level is high, vehicles preparing to enter this road will change to another route
     double get_weight() const;
     void update();
     
@@ -88,7 +80,7 @@ public:
     // Converting here, once, is the only way both stay true; doing it at the
     // call sites is how the two units got mixed up in the first place.
     // ======================================================================
-    double speed_limit_ms() const { return speed_limit / 3.6; }
+    double speed_limit_ms() const { return speed_limit_ / 3.6; }
 
     // Free-flow speed reduced by how congested this road currently is.
     // `sensitivity` is 1.0 for ordinary traffic and lower for vehicles that
@@ -108,4 +100,61 @@ public:
     // number -- a big number is still cheaper than a long detour, which is how
     // a "closed" road ends up on a route anyway.
     double cost(CostMode mode = CostMode::Distance) const;
+
+    // ======================================================================
+    // Encapsulated mutable state.
+    //
+    // These are the fields that actually change after construction --
+    // TrafficEvent (accidents, closures, congestion) and live map editing
+    // (update_road()) mutate them, each under an invariant worth protecting
+    // (a valid range, or "closed roads are impassable"). Everything above
+    // (id, source/target, capacity, length, ...) is topology set once at
+    // construction and read constantly on the simulation hot path; wrapping
+    // it in a getter that just returns the same value would not protect
+    // anything, so it stays public data. Only these needed moving.
+    // ======================================================================
+    int get_lanes() const { return lanes_; }
+    void set_lanes(int n) { lanes_ = n < 1 ? 1 : n; }
+
+    double get_speed_limit() const { return speed_limit_; }  // km/h
+    void set_speed_limit(double kmh) { speed_limit_ = kmh < 5.0 ? 5.0 : kmh; }
+
+    bool is_closed() const { return is_closed_; }
+    void set_closed(bool closed) { is_closed_ = closed; }
+
+    // update_travel_cost() is the only thing that normally computes this
+    // from vehicle density + event_congestion_; the setter exists for tests
+    // and scripted scenarios that want to force a congestion level directly,
+    // and still clamps to the same [0, 1] every reader assumes.
+    double get_congestion_level() const { return congestion_level_; }
+    void set_congestion_level(double c) {
+        congestion_level_ = c < 0.0 ? 0.0 : (c > 1.0 ? 1.0 : c);
+    }
+
+    double get_capacity_scale() const { return capacity_scale_; }
+    // Traffic events act multiplicatively (an accident cuts capacity by a
+    // factor; clearing it divides back), so the operation Road exposes is
+    // "scale", not "set" -- that is what lets two overlapping accidents
+    // compose instead of the second clobbering the first's effect.
+    void scale_capacity(double factor) {
+        capacity_scale_ *= factor;
+        if (capacity_scale_ > 1.0) capacity_scale_ = 1.0;
+        if (capacity_scale_ < 0.01) capacity_scale_ = 0.01;  // never fully seized
+    }
+
+    double get_event_congestion() const { return event_congestion_; }
+    // Additive for the same reason: two overlapping congestion events must
+    // stack and unwind independently.
+    void add_event_congestion(double delta) {
+        event_congestion_ += delta;
+        if (event_congestion_ < 0.0) event_congestion_ = 0.0;
+    }
+
+private:
+    int lanes_;
+    double speed_limit_;              // km/h
+    double congestion_level_ = 0.0;   // [0, 1], see update_travel_cost()
+    bool is_closed_ = false;
+    double capacity_scale_ = 1.0;     // (0, 1], following an accident
+    double event_congestion_ = 0.0;   // >= 0, following a congestion event
 };

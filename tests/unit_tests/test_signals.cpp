@@ -261,12 +261,12 @@ TEST_CASE("Road::cost follows the requested policy and refuses closed roads") {
     CHECK(am->cost(CostMode::Time) == doctest::Approx(100.0 / (50.0 / 3.6)).epsilon(0.01));
 
     // Congestion makes it slower in Time, and leaves Distance untouched.
-    am->congestion_level = 1.0;
+    am->set_congestion_level(1.0);
     CHECK(am->cost(CostMode::Time) > 100.0 / (50.0 / 3.6));
     CHECK(am->cost(CostMode::Distance) == doctest::Approx(100.0));
 
     // A closed road is not expensive, it is impassable.
-    am->is_closed = true;
+    am->set_closed(true);
     CHECK(am->cost(CostMode::Distance) == std::numeric_limits<double>::infinity());
     CHECK(am->cost(CostMode::Time) == std::numeric_limits<double>::infinity());
 
@@ -280,7 +280,7 @@ TEST_CASE("effective speed falls with congestion but never reaches zero") {
     CHECK(am->speed_limit_ms() == doctest::Approx(50.0 / 3.6));
     CHECK(am->effective_speed_ms() == doctest::Approx(am->speed_limit_ms()));
 
-    am->congestion_level = 1.0;
+    am->set_congestion_level(1.0);
     const double jammed = am->effective_speed_ms();
     CHECK(jammed < am->speed_limit_ms());
     CHECK(jammed >= 1.0);   // a jammed road must still let traffic crawl out

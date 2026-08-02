@@ -300,7 +300,7 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
     // Keep the motion state. The whole point of transferring rather than
     // respawning is that the driver does not notice the edit: same speed, same
     // lane if that lane still exists, same sideways drift.
-    const std::vector<int> ok = allowed_lanes(new_road->lanes);
+    const std::vector<int> ok = allowed_lanes(new_road->get_lanes());
     if (std::find(ok.begin(), ok.end(), lane) == ok.end()) {
         lane = ok.empty() ? 0 : ok.front();
         target_lateral_offset = 0.0;
@@ -323,7 +323,7 @@ bool Vehicle::rescue_to(std::size_t new_index) {
     if (!dest) return false;
 
     int dest_lane = lane;
-    const std::vector<int> ok = allowed_lanes(dest->lanes);
+    const std::vector<int> ok = allowed_lanes(dest->get_lanes());
     if (std::find(ok.begin(), ok.end(), dest_lane) == ok.end()) {
         dest_lane = ok.empty() ? 0 : ok.front();
     }
@@ -448,7 +448,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
             Road* next = route[next_index];
             // Keep to a lane this vehicle is allowed to use on the new road.
             int next_lane = lane;
-            const std::vector<int> ok = allowed_lanes(next->lanes);
+            const std::vector<int> ok = allowed_lanes(next->get_lanes());
             if (std::find(ok.begin(), ok.end(), next_lane) == ok.end()) {
                 next_lane = ok.empty() ? 0 : ok.back();
             }

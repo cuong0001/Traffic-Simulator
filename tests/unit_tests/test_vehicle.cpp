@@ -292,11 +292,11 @@ TEST_CASE("congestion_sensitivity changes how much a jam slows a vehicle") {
     auto car = VehicleFactory::create("car", "same-id");
     auto amb = VehicleFactory::create("emergency", "same-id");  // same speed jitter
 
-    r->congestion_level = 0.0;
+    r->set_congestion_level(0.0);
     const double car_free = car->desired_speed_on(*r);
     const double amb_free = amb->desired_speed_on(*r);
 
-    r->congestion_level = 1.0;
+    r->set_congestion_level(1.0);
     const double car_jam = car->desired_speed_on(*r);
     const double amb_jam = amb->desired_speed_on(*r);
 

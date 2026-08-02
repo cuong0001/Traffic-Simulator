@@ -46,7 +46,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
 
         // Relax all outgoing edges
         for (Road* road : current->outgoing_edges) {
-            if (road->is_closed) continue;   // closed road is untraversable
+            if (road->is_closed()) continue;   // closed road is untraversable
             relax_edge(current, road);
         }
     }

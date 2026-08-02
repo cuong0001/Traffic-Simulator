@@ -138,9 +138,9 @@ TEST_CASE("a two-way street is written once and reloads as two roads") {
     const Road* ab = g.edges.at("AB").get();
     CHECK(ab->source->name == "A");
     CHECK(ab->target->name == "B");
-    CHECK(ab->lanes == 3);
+    CHECK(ab->get_lanes() == 3);
     CHECK(ab->capacity == 18);
-    CHECK(ab->speed_limit == doctest::Approx(60.0));
+    CHECK(ab->get_speed_limit() == doctest::Approx(60.0));
     CHECK(ab->length == doctest::Approx(120.0));
     CHECK_FALSE(ab->is_one_way);
 
@@ -148,7 +148,7 @@ TEST_CASE("a two-way street is written once and reloads as two roads") {
     const Road* rev = g.edges.at("AB_r").get();
     CHECK(rev->source->name == "B");
     CHECK(rev->target->name == "A");
-    CHECK(rev->lanes == 3);
+    CHECK(rev->get_lanes() == 3);
 }
 
 TEST_CASE("a one-way street stays one-way") {
@@ -160,9 +160,9 @@ TEST_CASE("a one-way street stays one-way") {
 
     const Road* bc = g.edges.at("BC").get();
     CHECK(bc->is_one_way);
-    CHECK(bc->lanes == 1);
+    CHECK(bc->get_lanes() == 1);
     CHECK(bc->capacity == 9);
-    CHECK(bc->speed_limit == doctest::Approx(40.0));
+    CHECK(bc->get_speed_limit() == doctest::Approx(40.0));
     CHECK(bc->length == doctest::Approx(90.0));
 }
 

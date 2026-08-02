@@ -347,7 +347,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
         // (cost 20) the expensive one. Closing A->C must make every
         // algorithm use A->B->D regardless of weights or heuristic.
         std::unique_ptr<TrafficGraph> g(make_diamond_graph());
-        g->edges["AC"]->is_closed = true;
+        g->edges["AC"]->set_closed(true);
 
         Dijkstra dijk;
         BFS bfs;
@@ -371,7 +371,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
         // Linear chain N0->N1->N2->N3->N4. Closing N2->N3 cuts off N3 and N4,
         // so there is no path from N0 to N4.
         std::unique_ptr<TrafficGraph> g(make_chain_graph(5));
-        g->edges["N2_N3"]->is_closed = true;
+        g->edges["N2_N3"]->set_closed(true);
 
         Dijkstra dijk;
         BFS bfs;

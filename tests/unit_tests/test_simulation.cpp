@@ -174,11 +174,11 @@ TEST_CASE("events are created, described and expire on their own") {
     SUBCASE("a closure applies, shows up in state, and undoes itself") {
         const std::string id = sim.trigger_event("closure", road, 5.0);
         REQUIRE_FALSE(id.empty());
-        CHECK(sim.graph()->get_edge(road)->is_closed);
+        CHECK(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find(id) != std::string::npos);
 
         for (int i = 0; i < 60; ++i) sim.tick(0.1);   // 6 s > 5 s duration
-        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find("\"id\":\"" + id + "\"") == std::string::npos);
     }
     SUBCASE("a road cannot be closed twice") {
@@ -187,11 +187,11 @@ TEST_CASE("events are created, described and expire on their own") {
     }
     SUBCASE("an accident restores capacity when it clears") {
         Road* r = sim.graph()->get_edge(road);
-        const double before = r->capacity_scale;
+        const double before = r->get_capacity_scale();
         REQUIRE_FALSE(sim.trigger_event("accident", road, 3.0).empty());
-        CHECK(r->capacity_scale < before);
+        CHECK(r->get_capacity_scale() < before);
         for (int i = 0; i < 40; ++i) sim.tick(0.1);
-        CHECK(r->capacity_scale == doctest::Approx(before));
+        CHECK(r->get_capacity_scale() == doctest::Approx(before));
     }
 }
 
@@ -338,9 +338,9 @@ TEST_CASE("live map editing") {
     SUBCASE("a road's speed and closed flag can be edited") {
         const std::string rid = sim.graph()->edges.begin()->first;
         CHECK(sim.update_road(rid, 30.0, true));
-        CHECK(sim.graph()->get_edge(rid)->is_closed);
+        CHECK(sim.graph()->get_edge(rid)->is_closed());
         CHECK(sim.update_road(rid, 60.0, false));
-        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed());
         CHECK_FALSE(sim.update_road("ghost", 30.0, false));
     }
 }

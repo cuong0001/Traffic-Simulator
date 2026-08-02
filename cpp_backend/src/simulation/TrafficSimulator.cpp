@@ -296,7 +296,7 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     // request_route() already put v on its first road. Pick the best allowed lane
     // with the clearest entrance gap to distribute traffic across available lanes.
     if (Road* first = v->current_road) {
-        const std::vector<int> ok = v->allowed_lanes(first->lanes);
+        const std::vector<int> ok = v->allowed_lanes(first->get_lanes());
         int best_lane = v->lane;
         double best_gap = -1.0;
         const double needed = v->length_meters() + kSpawnClearance;
@@ -516,12 +516,12 @@ std::string TrafficSimulator::state_json() {
     first = true;
     if (graph_) {
         for (const auto& [id, road] : graph_->edges) {
-            if (road->congestion_level <= 0.01 && !road->is_closed) continue;
+            if (road->get_congestion_level() <= 0.01 && !road->is_closed()) continue;
             if (!first) os << ",";
             first = false;
             os << "{\"id\":" << jstr(id)
-               << ",\"congestion\":" << road->congestion_level
-               << ",\"closed\":" << (road->is_closed ? "true" : "false") << "}";
+               << ",\"congestion\":" << road->get_congestion_level()
+               << ",\"closed\":" << (road->is_closed() ? "true" : "false") << "}";
         }
     }
     os << "],";
@@ -842,8 +842,8 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
 
     Intersection* a = best->source;
     Intersection* b = best->target;
-    const int lanes = best->lanes;
-    const double speed = best->speed_limit;
+    const int lanes = best->get_lanes();
+    const double speed = best->get_speed_limit();
     const bool oneway = best->is_one_way;
     std::string base = best->id;
     if (base.size() > 2 && base.compare(base.size() - 2, 2, "_r") == 0) {
@@ -1000,8 +1000,8 @@ bool TrafficSimulator::update_road(const std::string& id, double speed_kmh, bool
     for (const std::string& rid : {id, id + "_r"}) {
         auto it = graph_->edges.find(rid);
         if (it == graph_->edges.end()) continue;
-        if (speed_kmh > 0.0) it->second->speed_limit = speed_kmh;
-        it->second->is_closed = closed;
+        if (speed_kmh > 0.0) it->second->set_speed_limit(speed_kmh);
+        it->second->set_closed(closed);
         it->second->update();
         touched = true;
     }
@@ -1217,7 +1217,7 @@ std::pair<Vehicle*, double> TrafficSimulator::lead_in_lane(Vehicle* v) const {
 
     // advance() remaps the lane on handover, so watch the lane we will land in.
     int lane = v->lane;
-    const std::vector<int> allowed = v->allowed_lanes(next->lanes);
+    const std::vector<int> allowed = v->allowed_lanes(next->get_lanes());
     if (std::find(allowed.begin(), allowed.end(), lane) == allowed.end())
         lane = allowed.empty() ? 0 : allowed.front();
 
@@ -1268,10 +1268,10 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
     for (auto& vp : vehicles_) {
         Vehicle* v = vp.get();
         Road* road = v->current_road;
-        if (!road || road->lanes < 2) continue;
+        if (!road || road->get_lanes() < 2) continue;
         if (!v->lane_change_ready(sim_time)) continue;
 
-        const std::vector<int> allowed = v->allowed_lanes(road->lanes);
+        const std::vector<int> allowed = v->allowed_lanes(road->get_lanes());
         if (allowed.size() < 2) continue;
 
         const double a_cur = accel_in_lane(v, v->lane);

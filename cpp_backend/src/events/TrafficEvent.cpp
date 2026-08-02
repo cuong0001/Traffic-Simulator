@@ -27,20 +27,19 @@ std::string CongestionEvent::description() const
 void CongestionEvent::apply(TrafficGraph& graph) 
 {
     Road* r = graph.get_edge(targetId_);
-    if (r) 
+    if (r)
     {
-        r->event_congestion += intensity_; // Increased traffic congestion
-        r->update_travel_cost();           // Update travel cost
+        r->add_event_congestion(intensity_); // Increased traffic congestion
+        r->update_travel_cost();             // Update travel cost
     }
 }
 
-void CongestionEvent::expire(TrafficGraph& graph) 
+void CongestionEvent::expire(TrafficGraph& graph)
 {
     Road* r = graph.get_edge(targetId_);
-    if (r) 
+    if (r)
     {
-        r->event_congestion -= intensity_; 
-        if (r->event_congestion < 0.0) r->event_congestion = 0.0; 
+        r->add_event_congestion(-intensity_);  // clamped to >= 0 internally
         r->update_travel_cost();
     }
 }
@@ -68,21 +67,20 @@ std::string AccidentEvent::description() const
 void AccidentEvent::apply(TrafficGraph& graph) 
 {
     Road* r = graph.get_edge(targetId_);
-    if (r) 
+    if (r)
     {
-        r->capacity_scale *= 0.3; // The accident reduced capacity by 70%.
-        r->event_congestion += 0.7; // Add traffic jams
+        r->scale_capacity(0.3);           // The accident reduced capacity by 70%.
+        r->add_event_congestion(0.7);     // Add traffic jams
         r->update_travel_cost();
     }
 }
 
-void AccidentEvent::expire(TrafficGraph& graph) 
+void AccidentEvent::expire(TrafficGraph& graph)
 {
     Road* r = graph.get_edge(targetId_);
     if (r) {
-        r->capacity_scale /= 0.3; // Restoring road capacity following the accident
-        if (r->capacity_scale > 1.0) r->capacity_scale = 1.0;
-        r->event_congestion -= 0.7;
+        r->scale_capacity(1.0 / 0.3);     // Restoring road capacity following the accident (clamped to <= 1.0)
+        r->add_event_congestion(-0.7);
         r->update_travel_cost();
     }
 }
@@ -110,19 +108,19 @@ std::string RoadClosureEvent::description() const
 void RoadClosureEvent::apply(TrafficGraph& graph) 
 {
     Road* r = graph.get_edge(targetId_);
-    if (r) 
+    if (r)
     {
-        r->is_closed = true;
-        r->update_travel_cost(); 
+        r->set_closed(true);
+        r->update_travel_cost();
     }
 }
 
-void RoadClosureEvent::expire(TrafficGraph& graph) 
+void RoadClosureEvent::expire(TrafficGraph& graph)
 {
     Road* r = graph.get_edge(targetId_);
-    if (r) 
+    if (r)
     {
-        r->is_closed = false;
+        r->set_closed(false);
         r->update_travel_cost();
     }
 }

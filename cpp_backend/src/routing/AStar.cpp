@@ -65,7 +65,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         Intersection* current = graph.intersections.at(current_name).get();
 
         for (Road* road : current->outgoing_edges) {
-            if (road->is_closed) continue;   // closed road is untraversable
+            if (road->is_closed()) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
             double tentative_g = g_score[current_name] + road->get_weight();
 

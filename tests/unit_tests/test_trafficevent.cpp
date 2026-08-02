@@ -34,14 +34,14 @@ TEST_CASE("RoadClosureEvent closes and reopens a road") {
     closure.apply(graph);
 
     // Check: Road blocked and cost increased to infinity (1e8).
-    CHECK(road->is_closed == true);
+    CHECK(road->is_closed() == true);
     CHECK(road->travel_cost == doctest::Approx(1e8));
 
     // 3. End of the road closure event
     closure.expire(graph);
 
     // Check: Road reopening and restoration travel costs
-    CHECK(road->is_closed == false);
+    CHECK(road->is_closed() == false);
     CHECK(road->travel_cost == doctest::Approx(original_cost));
 }
 
@@ -61,8 +61,8 @@ TEST_CASE("AccidentEvent restores capacity correctly with overlapping accidents"
     REQUIRE(road != nullptr);
 
     // Initial state
-    CHECK(road->capacity_scale == doctest::Approx(1.0));
-    CHECK(road->event_congestion == doctest::Approx(0.0));
+    CHECK(road->get_capacity_scale() == doctest::Approx(1.0));
+    CHECK(road->get_event_congestion() == doctest::Approx(0.0));
 
     // Create two overlapping accidents on the same R2 road.
     AccidentEvent acc1("acc1", "R2", 30.0);
@@ -70,19 +70,19 @@ TEST_CASE("AccidentEvent restores capacity correctly with overlapping accidents"
 
     // Accident 1 occurred: capacity_scale = 1.0 * 0.3 = 0.3
     acc1.apply(graph);
-    CHECK(road->capacity_scale == doctest::Approx(0.3));
+    CHECK(road->get_capacity_scale() == doctest::Approx(0.3));
 
     // Accident 2 occurred:: capacity_scale = 0.3 * 0.3 = 0.09
     acc2.apply(graph);
-    CHECK(road->capacity_scale == doctest::Approx(0.09));
+    CHECK(road->get_capacity_scale() == doctest::Approx(0.09));
 
     // Accident 1 is no longer in effect: capacity_scale = 0.09 / 0.3 = 0.3
     acc1.expire(graph);
-    CHECK(road->capacity_scale == doctest::Approx(0.3));
+    CHECK(road->get_capacity_scale() == doctest::Approx(0.3));
 
     // Accident 2 is no longer in effect: capacity_scale = 0.3 / 0.3 = 1.0
     acc2.expire(graph);
-    CHECK(road->capacity_scale == doctest::Approx(1.0));
+    CHECK(road->get_capacity_scale() == doctest::Approx(1.0));
 }
 
 // TEST 3: Check for traffic jam incidents (CongestionEvent)
@@ -107,12 +107,12 @@ TEST_CASE("CongestionEvent increases and restores event_congestion") {
 
     // Activate
     congestion.apply(graph);
-    CHECK(road->event_congestion == doctest::Approx(0.5));
+    CHECK(road->get_event_congestion() == doctest::Approx(0.5));
     CHECK(road->travel_cost > base_cost);
 
     // End
     congestion.expire(graph);
-    CHECK(road->event_congestion == doctest::Approx(0.0));
+    CHECK(road->get_event_congestion() == doctest::Approx(0.0));
     CHECK(road->travel_cost == doctest::Approx(base_cost));
 }
 

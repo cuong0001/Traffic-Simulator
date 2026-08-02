@@ -83,7 +83,7 @@ std::string TrafficController::trigger_event(const std::string& type,
     // while the first event is still running.
     if (type == "closure") {
         const Road* road = graph_->get_edge(target_id);
-        if (road && road->is_closed) return "";
+        if (road && road->is_closed()) return "";
     }
 
     if (duration <= 0.0) duration = default_duration(type);
