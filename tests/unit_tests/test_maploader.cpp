@@ -172,17 +172,17 @@ TEST_CASE("a building keeps its footprint and its anchor node") {
 
     REQUIRE(g.buildings.count("City Hall") == 1);
     const Building* b = g.buildings.at("City Hall").get();
-    CHECK(b->type == "civic");
-    CHECK(b->levels == 4);
-    CHECK(b->node_id == "A");
+    CHECK(b->get_type() == "civic");
+    CHECK(b->get_levels() == 4);
+    CHECK(b->get_node_id() == "A");
 
     // The writer closes the ring; the loader drops the repeated last point, so
     // the corner count has to come back unchanged.
-    REQUIRE(b->footprint.size() == 4);
-    CHECK(b->footprint[0].first == doctest::Approx(10.0));
-    CHECK(b->footprint[0].second == doctest::Approx(10.0));
-    CHECK(b->footprint[2].first == doctest::Approx(30.0));
-    CHECK(b->footprint[2].second == doctest::Approx(25.0));
+    REQUIRE(b->get_footprint().size() == 4);
+    CHECK(b->get_footprint()[0].first == doctest::Approx(10.0));
+    CHECK(b->get_footprint()[0].second == doctest::Approx(10.0));
+    CHECK(b->get_footprint()[2].first == doctest::Approx(30.0));
+    CHECK(b->get_footprint()[2].second == doctest::Approx(25.0));
 }
 
 TEST_CASE("a zone keeps its bounding box") {

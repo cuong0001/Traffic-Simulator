@@ -196,7 +196,7 @@ void load_building(TrafficGraph& graph, const json& props, const json& geom) {
                                                std::move(footprint));
     // Project-specific extension: "node" anchors the building to a node so a
     // vehicle can pick it as a destination (Vehicle::request_route uses node_id).
-    building->node_id = str_prop(props, "node");
+    building->set_node_id(str_prop(props, "node"));
     graph.buildings[key] = std::move(building);
 }
 
@@ -843,13 +843,13 @@ std::string MapLoader::map_json_string(const TrafficGraph& graph) {
 
     for (const auto& [name, building] : graph.buildings) {
         json footprint = json::array();
-        for (const auto& [px, py] : building->footprint) {
+        for (const auto& [px, py] : building->get_footprint()) {
             footprint.push_back({px, py});
         }
         out["buildings"].push_back({
-            {"name", building->name},
-            {"kind", building->type},
-            {"levels", building->levels},
+            {"name", building->get_name()},
+            {"kind", building->get_type()},
+            {"levels", building->get_levels()},
             {"footprint", std::move(footprint)},
         });
     }
@@ -937,18 +937,18 @@ void MapLoader::write_geojson(const TrafficGraph& graph, const std::string& path
 
     // --- buildings ---------------------------------------------------------
     for (const auto& [key, building] : graph.buildings) {
-        if (building->footprint.empty()) continue;   // nothing to draw or save
+        if (building->get_footprint().empty()) continue;   // nothing to draw or save
         json ring = json::array();
-        for (const auto& [px, py] : building->footprint) ring.push_back({px, py});
-        ring.push_back({building->footprint.front().first,
-                        building->footprint.front().second});  // GeoJSON rings close
+        for (const auto& [px, py] : building->get_footprint()) ring.push_back({px, py});
+        ring.push_back({building->get_footprint().front().first,
+                        building->get_footprint().front().second});  // GeoJSON rings close
         json props{
             {"uts:kind", "building"},
-            {"name", building->name},
-            {"kind", building->type},
-            {"levels", building->levels},
+            {"name", building->get_name()},
+            {"kind", building->get_type()},
+            {"levels", building->get_levels()},
         };
-        if (!building->node_id.empty()) props["node"] = building->node_id;
+        if (!building->get_node_id().empty()) props["node"] = building->get_node_id();
         features.push_back({
             {"type", "Feature"},
             {"properties", std::move(props)},
