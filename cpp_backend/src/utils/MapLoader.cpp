@@ -777,6 +777,7 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
             graph.designalize(id);
         }
     }
+    graph.reindex();
 }
 
 std::string MapLoader::validate(const TrafficGraph& graph) {

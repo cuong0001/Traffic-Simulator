@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <cstdint>
 
 class Intersection;
 class Vehicle;
@@ -22,6 +23,8 @@ class Road {
 public:
 
     std::string id;
+    uint32_t index = 0;       // Fast zero-overhead integer ID
+    uint32_t base_index = 0;  // Shared ID for two-way street twin roads (ignores _r)
 
     Intersection* source;
     Intersection* target;

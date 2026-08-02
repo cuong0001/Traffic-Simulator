@@ -48,6 +48,7 @@ public:
     int lane{0};                        // current lane, 0 is the innermost
     double stuck_time{0.0};             // seconds spent standing still
     double last_gap{1e9};               // gap the last advance() actually used
+    std::size_t sim_index = 0;          // Fast zero-overhead index in simulator fleet vector
 
     // Constructor
     Vehicle(std::string id, double max_speed, double max_accel, double max_decel);

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -294,6 +295,38 @@ TEST_CASE("live map editing") {
         const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
         CHECK_FALSE(rid.empty());
         CHECK(sim.graph()->edges.size() > roads_before);
+    }
+    SUBCASE("live edits keep Intersection::index and Road::index collision-free") {
+        // Before the fix, a node/road created after the initial load kept the
+        // default index 0 and silently aliased whatever already owned that
+        // slot in solve_junctions()'s per-node buckets. Guard against a
+        // regression directly, without needing to simulate traffic across the
+        // new junction to observe the corruption.
+        Intersection* any = sim.graph()->intersections.begin()->second;
+        const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
+        REQUIRE_FALSE(nid.empty());
+        const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
+        REQUIRE_FALSE(rid.empty());
+
+        std::set<uint32_t> node_indices;
+        for (const auto& [id, node] : sim.graph()->intersections) {
+            CHECK(node_indices.insert(node->index).second);  // no duplicate index
+        }
+        std::set<uint32_t> road_indices;
+        for (const auto& [id, road] : sim.graph()->edges) {
+            CHECK(road_indices.insert(road->index).second);  // no duplicate index
+        }
+
+        // base_index legitimately repeats -- it groups a two-way street's "id"
+        // and "id_r" twin -- but the new road must not fall into some
+        // unrelated pre-existing street's group.
+        Road* new_road = sim.graph()->get_edge(rid);
+        REQUIRE(new_road != nullptr);
+        for (const auto& [id, road] : sim.graph()->edges) {
+            if (road == new_road || id == rid) continue;
+            if (id == rid + "_r") continue;
+            CHECK(road->base_index != new_road->base_index);
+        }
     }
     SUBCASE("removing a road takes its reverse twin with it") {
         const std::string rid = sim.graph()->edges.begin()->first;

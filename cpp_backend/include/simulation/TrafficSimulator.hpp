@@ -18,6 +18,7 @@ would change what the second one sees inside the same tick.
 */
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -231,10 +232,16 @@ private:
     // It needs the leaders as INPUT as well as output: rule (c) below cannot
     // tell whether entering the junction would leave the vehicle stranded
     // across it without knowing what is already in front.
+    struct JunctionOccupant {
+        std::size_t vehicle_idx;
+        const Road* road;
+    };
+    std::vector<std::vector<JunctionOccupant>> node_occupants_;
+    std::vector<std::vector<std::size_t>> node_approaching_;
+
     void solve_junctions(double dt, double sim_time,
                          std::vector<std::pair<Vehicle*, double>>& leaders,
-                         std::vector<int>& waiting_on,
-                         const std::unordered_map<const Vehicle*, int>& index_of);
+                         std::vector<int>& waiting_on);
     void solve_gridlock(double sim_time);              // forced / rescue
 
     // Metres derived from the map's own scale -- see set_junction_approach().
