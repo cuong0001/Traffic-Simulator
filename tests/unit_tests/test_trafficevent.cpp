@@ -1,6 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "third_party/doctest/doctest.h"
 
+#include <memory>
+
 #include "core/Graph.hpp"
 #include "core/Intersection.hpp"
 #include "core/Road.hpp"
@@ -11,10 +13,12 @@ TEST_CASE("RoadClosureEvent closes and reopens a road") {
     TrafficGraph graph;
 
     // 1. Initialize the intersection and add road R1 to the graph.
-    auto* nodeA = new Intersection("NodeA", 0.0, 0.0);
-    auto* nodeB = new Intersection("NodeB", 100.0, 0.0);
-    graph.intersections["NodeA"] = nodeA;
-    graph.intersections["NodeB"] = nodeB;
+    auto nodeA_owned = std::make_unique<Intersection>("NodeA", 0.0, 0.0);
+    Intersection* nodeA = nodeA_owned.get();
+    auto nodeB_owned = std::make_unique<Intersection>("NodeB", 100.0, 0.0);
+    Intersection* nodeB = nodeB_owned.get();
+    graph.intersections["NodeA"] = std::move(nodeA_owned);
+    graph.intersections["NodeB"] = std::move(nodeB_owned);
 
     // Create Road R1 (2 lanes, max speed 50.0, two-way)
     graph.create_directional_road("R1", nodeA, nodeB, 2, 50.0, false);
@@ -45,10 +49,12 @@ TEST_CASE("RoadClosureEvent closes and reopens a road") {
 TEST_CASE("AccidentEvent restores capacity correctly with overlapping accidents") {
     TrafficGraph graph;
 
-    auto* nodeA = new Intersection("NodeC", 0.0, 0.0);
-    auto* nodeB = new Intersection("NodeD", 100.0, 0.0);
-    graph.intersections["NodeC"] = nodeA;
-    graph.intersections["NodeD"] = nodeB;
+    auto nodeA_owned = std::make_unique<Intersection>("NodeC", 0.0, 0.0);
+    Intersection* nodeA = nodeA_owned.get();
+    auto nodeB_owned = std::make_unique<Intersection>("NodeD", 100.0, 0.0);
+    Intersection* nodeB = nodeB_owned.get();
+    graph.intersections["NodeC"] = std::move(nodeA_owned);
+    graph.intersections["NodeD"] = std::move(nodeB_owned);
 
     graph.create_directional_road("R2", nodeA, nodeB, 2, 50.0, false);
     Road* road = graph.get_edge("R2");
@@ -83,10 +89,12 @@ TEST_CASE("AccidentEvent restores capacity correctly with overlapping accidents"
 TEST_CASE("CongestionEvent increases and restores event_congestion") {
     TrafficGraph graph;
 
-    auto* nodeA = new Intersection("NodeE", 0.0, 0.0);
-    auto* nodeB = new Intersection("NodeF", 100.0, 0.0);
-    graph.intersections["NodeE"] = nodeA;
-    graph.intersections["NodeF"] = nodeB;
+    auto nodeA_owned = std::make_unique<Intersection>("NodeE", 0.0, 0.0);
+    Intersection* nodeA = nodeA_owned.get();
+    auto nodeB_owned = std::make_unique<Intersection>("NodeF", 100.0, 0.0);
+    Intersection* nodeB = nodeB_owned.get();
+    graph.intersections["NodeE"] = std::move(nodeA_owned);
+    graph.intersections["NodeF"] = std::move(nodeB_owned);
 
     graph.create_directional_road("R3", nodeA, nodeB, 2, 50.0, false);
     Road* road = graph.get_edge("R3");
@@ -115,11 +123,12 @@ TEST_CASE("TrafficLightEvent restores green duration with overlapping events") {
     TrafficGraph graph;
     
     // 1. Initialize the NodeL intersection
-    auto* node = new Intersection("NodeL", 0.0, 0.0);
-    
+    auto node_owned = std::make_unique<Intersection>("NodeL", 0.0, 0.0);
+    Intersection* node = node_owned.get();
+
     // The initial green light setting is 30.0 seconds. (vàng 3.0s, đỏ 2.0s)
-    node->light_system = new TrafficLight(30.0, 3.0, 2.0); 
-    graph.intersections["NodeL"] = node;
+    node->light_system = std::make_unique<TrafficLight>(30.0, 3.0, 2.0);
+    graph.intersections["NodeL"] = std::move(node_owned);
 
     // Initial state
     CHECK(node->light_system->get_green_duration() == doctest::Approx(30.0));

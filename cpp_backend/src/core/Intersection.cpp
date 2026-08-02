@@ -9,10 +9,6 @@ Intersection::Intersection(std::string name, double x, double y)
     display_name = this->name;  // default the label to the id
 }
 
-Intersection::~Intersection() {
-    delete light_system;
-}
-
 bool Intersection::is_intersection() const {
     return !is_building && incoming_edges.size() > 1;
 }

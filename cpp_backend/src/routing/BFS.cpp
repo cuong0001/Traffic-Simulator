@@ -22,7 +22,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     if (start_it == graph.intersections.end() || end_it == graph.intersections.end())
         return {};
 
-    Intersection* start_node = start_it->second;
+    Intersection* start_node = start_it->second.get();
 
     // Seed the BFS
     front.push(start_node);

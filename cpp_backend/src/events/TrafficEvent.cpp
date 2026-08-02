@@ -152,13 +152,13 @@ void TrafficLightEvent::apply(TrafficGraph& graph)
     auto it = graph.intersections.find(targetId_);
     if (it != graph.intersections.end()) 
     {
-        Intersection* node = it->second;
+        Intersection* node = it->second.get();
         
         // Check if this intersection has traffic lights.
         if (node && node->light_system) 
         {
             // Malfunction: the green phase shrinks, so the junction spends most of its cycle red.
-            TrafficLight* light = node->light_system;
+            TrafficLight* light = node->light_system.get();
             light->set_green_duration(light->get_green_duration() * kBrokenGreenScale);
         }
     }
@@ -169,10 +169,10 @@ void TrafficLightEvent::expire(TrafficGraph& graph)
     auto it = graph.intersections.find(targetId_);
     if (it != graph.intersections.end()) 
     {
-        Intersection* node = it->second;
+        Intersection* node = it->second.get();
         if (node && node->light_system) 
         {
-            TrafficLight* light = node->light_system;
+            TrafficLight* light = node->light_system.get();
             light->set_green_duration(light->get_green_duration() / kBrokenGreenScale);
         }
     }

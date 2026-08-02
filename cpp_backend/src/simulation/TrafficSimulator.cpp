@@ -284,7 +284,7 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     Vehicle* v = VehicleFactory::create(type, id).release();
     v->set_algorithm(algorithm_);
     const auto t0 = std::chrono::steady_clock::now();
-    v->request_route(graph_, fit->second, tit->second);
+    v->request_route(graph_, fit->second.get(), tit->second.get());
     const double micros = std::chrono::duration<double, std::micro>(
                               std::chrono::steady_clock::now() - t0).count();
     stats_.recordRouteComputation(algorithm_, micros, v->last_nodes_explored(), !v->get_route().empty());
@@ -671,7 +671,7 @@ bool TrafficSimulator::remove_road_locked(const std::string& id) {
     for (const std::string& rid : {id, id + "_r"}) {
         auto it = graph_->edges.find(rid);
         if (it == graph_->edges.end()) continue;
-        Road* road = it->second;
+        Road* road = it->second.get();
 
         // Vehicles standing on a deleted road have nowhere to be: despawn them.
         for (auto vit = vehicles_.begin(); vit != vehicles_.end();) {
@@ -691,8 +691,7 @@ bool TrafficSimulator::remove_road_locked(const std::string& id) {
             auto& in = road->target->incoming_edges;
             in.erase(std::remove(in.begin(), in.end(), road), in.end());
         }
-        graph_->edges.erase(it);
-        delete road;
+        graph_->edges.erase(it);  // unique_ptr destructor frees the Road
         removed = true;
     }
     return removed;
@@ -744,7 +743,7 @@ bool TrafficSimulator::retarget_vehicle(const std::string& id,
     if (dit == graph_->intersections.end()) return false;
     for (Vehicle* v : vehicles_) {
         if (v->id != id) continue;
-        v->recompute_route(graph_, dit->second);
+        v->recompute_route(graph_, dit->second.get());
         return !v->get_route().empty();
     }
     return false;
@@ -813,7 +812,7 @@ std::string TrafficSimulator::add_junction_at(double x, double y) {
     std::lock_guard<std::mutex> lock(mtx_);
     if (!graph_) return "";
     const std::string id = "j" + std::to_string(next_id_++);
-    graph_->intersections[id] = new Intersection(id, x, y);
+    graph_->intersections[id] = std::make_unique<Intersection>(id, x, y);
     reindex_locked();
     return id;
 }
@@ -835,7 +834,7 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
         if (t < 0.05) t = 0.05;          // keep both halves long enough to drive
         if (t > 0.95) t = 0.95;
         const double d = std::hypot(ax + vx * t - x, ay + vy * t - y);
-        if (d < best_d) { best_d = d; best = r; best_t = t; }
+        if (d < best_d) { best_d = d; best = r.get(); best_t = t; }
     }
     if (!best) return "";
 
@@ -850,10 +849,11 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
     }
 
     const std::string mid_id = "j" + std::to_string(next_id_++);
-    Intersection* mid = new Intersection(mid_id,
-                                         a->x + (b->x - a->x) * best_t,
-                                         a->y + (b->y - a->y) * best_t);
-    graph_->intersections[mid_id] = mid;
+    auto mid_owned = std::make_unique<Intersection>(mid_id,
+                                                     a->x + (b->x - a->x) * best_t,
+                                                     a->y + (b->y - a->y) * best_t);
+    Intersection* mid = mid_owned.get();
+    graph_->intersections[mid_id] = std::move(mid_owned);
 
     // Vehicles standing on the road about to be split must survive it. Record
     // where each one actually IS in the world, and which way it is pointing,
@@ -871,7 +871,7 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
     for (const std::string& rid : {base, base + "_r"}) {
         auto rit = graph_->edges.find(rid);
         if (rit == graph_->edges.end()) continue;
-        Road* r = rit->second;
+        Road* r = rit->second.get();
         if (!r->source || !r->target || r->length < 1e-9) continue;
         const double ux = (r->target->x - r->source->x) / r->length;
         const double uy = (r->target->y - r->source->y) / r->length;
@@ -907,7 +907,7 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
         for (const std::string& cand : {id_a, id_b, id_a + "_r", id_b + "_r"}) {
             auto it = graph_->edges.find(cand);
             if (it == graph_->edges.end()) continue;
-            Road* r = it->second;
+            Road* r = it->second.get();
             if (!r->source || !r->target || r->length < 1e-9) continue;
             const double ux = (r->target->x - r->source->x) / r->length;
             const double uy = (r->target->y - r->source->y) / r->length;
@@ -949,9 +949,9 @@ std::string TrafficSimulator::add_road_between(const std::string& from,
     if (lanes < 1) lanes = 1;
     if (speed_kmh < 5.0) speed_kmh = 5.0;
     const std::string id = "r" + std::to_string(next_id_++);
-    graph_->create_directional_road(id, fit->second, tit->second, lanes, speed_kmh, oneway);
+    graph_->create_directional_road(id, fit->second.get(), tit->second.get(), lanes, speed_kmh, oneway);
     if (!oneway) {
-        graph_->create_directional_road(id + "_r", tit->second, fit->second,
+        graph_->create_directional_road(id + "_r", tit->second.get(), fit->second.get(),
                                         lanes, speed_kmh, oneway);
     }
     reindex_locked();
@@ -983,8 +983,7 @@ bool TrafficSimulator::remove_intersection(const std::string& id) {
     }
     for (const std::string& rid : doomed) remove_road_locked(rid);
 
-    delete it->second;
-    graph_->intersections.erase(it);
+    graph_->intersections.erase(it);  // unique_ptr destructor frees the Intersection
     reindex_locked();
     invalidate_routes_locked();
     return true;
@@ -1012,9 +1011,7 @@ bool TrafficSimulator::set_light(const std::string& node_id, bool on, double gre
     if (!graph_) return false;
     auto it = graph_->intersections.find(node_id);
     if (it == graph_->intersections.end()) return false;
-    Intersection* n = it->second;
 
-    (void)n;
     if (!on) {
         graph_->designalize(node_id);
         return true;
@@ -1040,7 +1037,7 @@ std::string TrafficSimulator::add_building_at(double x, double y,
     std::string key = name.empty() ? ("b" + std::to_string(next_id_++)) : name;
     while (graph_->buildings.count(key)) key += "_" + std::to_string(next_id_++);
     graph_->buildings[key] =
-        new Building(key, kind.empty() ? "yes" : kind, 1, std::move(footprint));
+        std::make_unique<Building>(key, kind.empty() ? "yes" : kind, 1, std::move(footprint));
     return key;
 }
 
@@ -1049,8 +1046,7 @@ bool TrafficSimulator::remove_building(const std::string& name) {
     if (!graph_) return false;
     auto it = graph_->buildings.find(name);
     if (it == graph_->buildings.end()) return false;
-    delete it->second;
-    graph_->buildings.erase(it);
+    graph_->buildings.erase(it);  // unique_ptr destructor frees the Building
     return true;
 }
 

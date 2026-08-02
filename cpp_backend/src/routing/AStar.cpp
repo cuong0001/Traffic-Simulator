@@ -44,7 +44,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         return {};
 
     if (start_id == end_id)
-        return { graph.intersections.at(start_id) };
+        return { graph.intersections.at(start_id).get() };
 
     init_scores(graph, start_id, end_id);
 
@@ -62,7 +62,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Intersection* current = graph.intersections.at(current_name);
+        Intersection* current = graph.intersections.at(current_name).get();
 
         for (Road* road : current->outgoing_edges) {
             if (road->is_closed) continue;   // closed road is untraversable
@@ -73,7 +73,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
                 prev[neighbour->name] = current;
                 g_score[neighbour->name] = tentative_g;
                 f_score[neighbour->name] = tentative_g +
-                    heuristic(neighbour, graph.intersections.at(end_id));
+                    heuristic(neighbour, graph.intersections.at(end_id).get());
                 pq.push({ f_score[neighbour->name], neighbour->name });
             }
         }
@@ -85,7 +85,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
 void AStar::init_scores(const TrafficGraph& graph,
                         const std::string& start_id,
                         const std::string& end_id) {
-    Intersection* goal = graph.intersections.at(end_id);
+    Intersection* goal = graph.intersections.at(end_id).get();
 
     for (auto& [name, node] : graph.intersections) {
         g_score[name] = std::numeric_limits<double>::infinity();
@@ -94,7 +94,7 @@ void AStar::init_scores(const TrafficGraph& graph,
     }
 
     g_score[start_id] = 0.0;
-    f_score[start_id] = heuristic(graph.intersections.at(start_id), goal);
+    f_score[start_id] = heuristic(graph.intersections.at(start_id).get(), goal);
     pq.push({ f_score[start_id], start_id });
 }
 

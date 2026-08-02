@@ -288,7 +288,7 @@ TEST_CASE("live map editing") {
     const std::size_t roads_before = sim.graph()->edges.size();
 
     SUBCASE("a junction can be added and joined to the network") {
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         CHECK(sim.graph()->intersections.size() == nodes_before + 1);
@@ -303,7 +303,7 @@ TEST_CASE("live map editing") {
         // slot in solve_junctions()'s per-node buckets. Guard against a
         // regression directly, without needing to simulate traffic across the
         // new junction to observe the corruption.
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
@@ -324,7 +324,7 @@ TEST_CASE("live map editing") {
         Road* new_road = sim.graph()->get_edge(rid);
         REQUIRE(new_road != nullptr);
         for (const auto& [id, road] : sim.graph()->edges) {
-            if (road == new_road || id == rid) continue;
+            if (road.get() == new_road || id == rid) continue;
             if (id == rid + "_r") continue;
             CHECK(road->base_index != new_road->base_index);
         }
@@ -663,7 +663,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             bool has_ring = false, has_street = false;
             for (const auto& [rid, road] : sim.graph()->edges) {
-                if (road->source != node && road->target != node) continue;
+                if (road->source != node.get() && road->target != node.get()) continue;
                 if (road->is_internal) has_ring = true; else has_street = true;
             }
             if (!has_ring) continue;
@@ -693,7 +693,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             for (const auto& [rid, road] : sim.graph()->edges) {
                 if (!road->is_internal) continue;
-                if (road->source == node || road->target == node) {
+                if (road->source == node.get() || road->target == node.get()) {
                     ring_nodes.push_back(id);
                     break;
                 }

@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -84,18 +85,18 @@ void load_node(TrafficGraph& graph, const json& props, const json& geom,
         throw MapLoadError("node '" + id + "' has malformed coordinates in " + source);
     }
 
-    Intersection* node = new Intersection(id, x, y);
+    auto node = std::make_unique<Intersection>(id, x, y);
     node->display_name = str_prop(props, "name", id);
     node->zone = str_prop(props, "zone");
     node->is_roundabout = (node->zone == "roundabout");
     if (bool_prop(props, "signal", false)) {
         node->is_signalized = true;
-        node->light_system = new TrafficLight(
+        node->light_system = std::make_unique<TrafficLight>(
             num_prop(props, "sgreen", 25.0), num_prop(props, "samber", 3.0),
             num_prop(props, "sred", 2.0),
             static_cast<int>(num_prop(props, "sgroups", 2)));
     }
-    graph.intersections[id] = node;
+    graph.intersections[id] = std::move(node);
 }
 
 void load_road(TrafficGraph& graph, const json& props, const std::string& source) {
@@ -130,13 +131,15 @@ void load_road(TrafficGraph& graph, const json& props, const std::string& source
         (from_it->second->is_roundabout && to_it->second->is_roundabout);
 
     // The Road constructor wires the edge into both nodes' adjacency lists.
-    graph.edges[id] = new Road(id, from_it->second, to_it->second, lanes, speed,
-                               capacity, oneway, length);
+    Intersection* from_node = from_it->second.get();
+    Intersection* to_node = to_it->second.get();
+    graph.edges[id] = std::make_unique<Road>(id, from_node, to_node, lanes, speed,
+                                             capacity, oneway, length);
     graph.edges[id]->is_internal = circulating;
     if (!oneway) {
         // Two-way street: expand into the reverse edge "id_r".
-        graph.edges[id + "_r"] = new Road(id + "_r", to_it->second, from_it->second,
-                                          lanes, speed, capacity, false, length);
+        graph.edges[id + "_r"] = std::make_unique<Road>(
+            id + "_r", to_node, from_node, lanes, speed, capacity, false, length);
         graph.edges[id + "_r"]->is_internal = circulating;
     }
 }
@@ -190,12 +193,12 @@ void load_building(TrafficGraph& graph, const json& props, const json& geom) {
         while (graph.buildings.count(key + " #" + std::to_string(i))) ++i;
         key += " #" + std::to_string(i);
     }
-    Building* building = new Building(name.empty() ? key : name, kind, levels,
-                                      std::move(footprint));
+    auto building = std::make_unique<Building>(name.empty() ? key : name, kind, levels,
+                                               std::move(footprint));
     // Project-specific extension: "node" anchors the building to a node so a
     // vehicle can pick it as a destination (Vehicle::request_route uses node_id).
     building->node_id = str_prop(props, "node");
-    graph.buildings[key] = building;
+    graph.buildings[key] = std::move(building);
 }
 
 // ===========================================================================
@@ -317,7 +320,7 @@ void load_building_osm(TrafficGraph& graph, const json& props, const json& geom,
             key += " #" + std::to_string(i);
         }
         graph.buildings[key] =
-            new Building(name.empty() ? key : name, kind, levels, std::move(footprint));
+            std::make_unique<Building>(name.empty() ? key : name, kind, levels, std::move(footprint));
     };
 
     if (type == "Polygon" && !geom["coordinates"].empty()) {
@@ -455,14 +458,14 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
     std::unordered_map<std::size_t, std::string> node_id_of;
     int node_counter = 0, waypoint_counter = 0;
     auto make_node = [&](std::size_t v, const std::string& id, const std::string& zone) {
-        Intersection* node = new Intersection(id, verts[v].x, verts[v].y);
+        auto node = std::make_unique<Intersection>(id, verts[v].x, verts[v].y);
         node->zone = zone;
         node->is_roundabout = (zone == "roundabout");
         auto nit = junction_names.find(v);
         if (nit != junction_names.end() && !nit->second.empty()) {
             node->display_name = *nit->second.begin();
         }
-        graph.intersections[id] = node;
+        graph.intersections[id] = std::move(node);
         node_id_of.emplace(v, id);
         return id;
     };
@@ -480,12 +483,12 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
     auto add_edge = [&](const std::string& id, const std::string& from,
                         const std::string& to, double len, double speed, int cap,
                         int lanes, bool oneway, bool circulating) {
-        Intersection* a = graph.intersections[from];
-        Intersection* b = graph.intersections[to];
-        graph.edges[id] = new Road(id, a, b, lanes, speed, cap, oneway, len);
+        Intersection* a = graph.intersections[from].get();
+        Intersection* b = graph.intersections[to].get();
+        graph.edges[id] = std::make_unique<Road>(id, a, b, lanes, speed, cap, oneway, len);
         graph.edges[id]->is_internal = circulating;
         if (!oneway) {
-            graph.edges[id + "_r"] = new Road(id + "_r", b, a, lanes, speed, cap, false, len);
+            graph.edges[id + "_r"] = std::make_unique<Road>(id + "_r", b, a, lanes, speed, cap, false, len);
             graph.edges[id + "_r"]->is_internal = circulating;
         }
     };
@@ -610,24 +613,22 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         }
     }
     for (const std::string& id : dead_edges) {
-        delete graph.edges[id];
-        graph.edges.erase(id);
+        graph.edges.erase(id);  // unique_ptr destructor frees the Road
     }
     std::vector<std::string> dead_nodes;
     for (const auto& [id, node] : graph.intersections) {
         if (!keep_nodes.count(id)) dead_nodes.push_back(id);
     }
     for (const std::string& id : dead_nodes) {
-        delete graph.intersections[id];
-        graph.intersections.erase(id);
+        graph.intersections.erase(id);  // unique_ptr destructor frees the Intersection
     }
     for (auto& [id, node] : graph.intersections) {
         node->outgoing_edges.clear();
         node->incoming_edges.clear();
     }
     for (auto& [id, road] : graph.edges) {
-        road->source->outgoing_edges.push_back(road);
-        road->target->incoming_edges.push_back(road);
+        road->source->outgoing_edges.push_back(road.get());
+        road->target->incoming_edges.push_back(road.get());
     }
     if (!dead_nodes.empty()) {
         std::fprintf(stderr,
@@ -646,7 +647,7 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         if (it == node_id_of.end()) continue;
         auto nit = graph.intersections.find(it->second);
         if (nit == graph.intersections.end()) continue;   // pruned away
-        Intersection* node = nit->second;
+        Intersection* node = nit->second.get();
         if (node->is_signalized) continue;
         // A traffic_signals point in OSM is a GUESS about this junction, so it
         // has to earn its light: signalize() clusters the approaches into two
@@ -786,7 +787,7 @@ std::string MapLoader::validate(const TrafficGraph& graph) {
     // Single BFS from an arbitrary node following outgoing edges.
     const std::string origin = graph.intersections.begin()->first;
     std::unordered_set<std::string> reached{origin};
-    std::vector<const Intersection*> frontier{graph.intersections.begin()->second};
+    std::vector<const Intersection*> frontier{graph.intersections.begin()->second.get()};
     for (std::size_t head = 0; head < frontier.size(); ++head) {
         for (const Road* road : frontier[head]->outgoing_edges) {
             if (reached.insert(road->target->name).second) {

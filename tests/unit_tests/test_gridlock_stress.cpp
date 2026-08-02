@@ -60,7 +60,7 @@ TEST_CASE("4-way heavy traffic junction resilience under continuous influx") {
     std::vector<Intersection*> outer;
     for (const auto& [name, node] : sim.graph()->intersections) {
         if (node->incoming_edges.size() + node->outgoing_edges.size() >= 2) {
-            outer.push_back(node);
+            outer.push_back(node.get());
         }
     }
     REQUIRE(outer.size() >= 4);
@@ -107,10 +107,10 @@ TEST_CASE("Junction box does not stall crossing streams when one exit is backed 
     sim.set_random_events(false);
     sim.set_paused(false);
 
-    Intersection* n1 = sim.graph()->intersections["n1"];
-    Intersection* n0 = sim.graph()->intersections["n0"];
-    Intersection* n2 = sim.graph()->intersections["n2"];
-    Intersection* n3 = sim.graph()->intersections["n3"];
+    Intersection* n1 = sim.graph()->intersections["n1"].get();
+    Intersection* n0 = sim.graph()->intersections["n0"].get();
+    Intersection* n2 = sim.graph()->intersections["n2"].get();
+    Intersection* n3 = sim.graph()->intersections["n3"].get();
     REQUIRE(n1 != nullptr);
     REQUIRE(n0 != nullptr);
     REQUIRE(n2 != nullptr);

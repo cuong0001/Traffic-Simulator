@@ -2,7 +2,8 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "core/TrafficLight.hpp" 
+#include <memory>
+#include "core/TrafficLight.hpp"
 class Road;
 
 class Intersection {
@@ -20,10 +21,16 @@ public:
     std::vector<Road*> outgoing_edges;
     std::vector<Road*> incoming_edges;
 
-    TrafficLight* light_system;
+    std::unique_ptr<TrafficLight> light_system;
 
     Intersection(std::string name, double x, double y);
-    ~Intersection(); 
+    ~Intersection() = default;
+
+    // Owns light_system via unique_ptr; not meant to be copied (two
+    // intersections should never share one light's ownership) and nothing
+    // in the codebase copies one today.
+    Intersection(const Intersection&) = delete;
+    Intersection& operator=(const Intersection&) = delete;
 
     bool is_intersection() const;
 
