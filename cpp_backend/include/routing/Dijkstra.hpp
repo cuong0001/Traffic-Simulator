@@ -18,6 +18,7 @@ public:
 private:
     std::unordered_map<std::string, double> dist;
     std::unordered_map<std::string, Intersection*> prev;
+    std::unordered_map<std::string, Intersection*> node_of;
     using PQEntry = std::pair<double, std::string>;
     std::priority_queue<PQEntry, std::vector<PQEntry>, std::greater<PQEntry>> pq;
     void init_distances(const TrafficGraph& graph, const std::string& start_id);

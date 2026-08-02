@@ -14,6 +14,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
     // clear state 
     dist.clear();
     prev.clear();
+    node_of.clear();
     while (!pq.empty()) pq.pop();
     nodes_explored_ = 0;
 
@@ -57,14 +58,13 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
 
 void Dijkstra::init_distances(const TrafficGraph& graph,
                                const std::string& start_id) {
-    // Set all distances to infinity
-    for (auto& [name, node] : graph.intersections) {
-        dist[name] = std::numeric_limits<double>::infinity();
-        prev[name] = nullptr;
-    }
-
-    // Start node has distance 0
+    // Lazy init: "absent from dist" already means infinity, so there is no
+    // reason to write 2617 infinities before a search that settles a few
+    // hundred nodes.
+    Intersection* start = graph.intersections.at(start_id);
     dist[start_id] = 0.0;
+    prev[start_id] = nullptr;
+    node_of[start_id] = start;
     pq.push({ 0.0, start_id });
 }
 
@@ -72,31 +72,22 @@ void Dijkstra::relax_edge(Intersection* current, Road* road) {
     Intersection* neighbour = road->target;
     double new_dist = dist[current->name] + road->get_weight();
 
-    if (new_dist < dist[neighbour->name]) {
+    // find() rather than operator[]: an id we have never reached is absent,
+    // which is exactly "distance infinity".
+    auto it = dist.find(neighbour->name);
+    if (it == dist.end() || new_dist < it->second) {
         dist[neighbour->name] = new_dist;
         prev[neighbour->name] = current;
+        node_of[neighbour->name] = neighbour;
         pq.push({ new_dist, neighbour->name });
     }
 }
 
 std::vector<Intersection*> Dijkstra::reconstruct_path(const std::string& start_id,
                                                const std::string& end_id) {
-    std::unordered_map<std::string, Intersection*> node_of;
-
-    for (auto& [child_name, parent_ptr] : prev) {
-        if (parent_ptr != nullptr) {
-            node_of[parent_ptr->name] = parent_ptr;
-
-            for (Road* road : parent_ptr->outgoing_edges) {
-                if (road->target->name == child_name) {
-                    node_of[child_name] = road->target;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Walk backwards from end to start following the prev chain to trace the dijkstra path
+    // node_of was filled during relaxation, so the path is just a walk back.
+    // The old version scanned the whole prev map and every parent's outgoing
+    // edges to rebuild information it was already holding.
     std::vector<Intersection*> path;
     std::string cur = end_id;
 
@@ -109,7 +100,10 @@ std::vector<Intersection*> Dijkstra::reconstruct_path(const std::string& start_i
         if (cur == start_id)
             break;
 
-        cur = prev[cur]->name;
+        auto pit = prev.find(cur);
+        if (pit == prev.end() || pit->second == nullptr)
+            return {};
+        cur = pit->second->name;
     }
 
     std::reverse(path.begin(), path.end());

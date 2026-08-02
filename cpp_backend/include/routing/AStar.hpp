@@ -20,6 +20,7 @@ private:
     std::unordered_map<std::string, double> g_score;
     std::unordered_map<std::string, double> f_score;
     std::unordered_map<std::string, Intersection*> prev;
+    std::unordered_map<std::string, Intersection*> node_of;
     using PQEntry = std::pair<double, std::string>;
     std::priority_queue<PQEntry, std::vector<PQEntry>, std::greater<PQEntry>> pq;
 
