@@ -26,6 +26,7 @@ public:
     enum class State { Planning, Moving, WaitingAtLight, Blocked, Arrived };    
 
     std::string id;
+    uint32_t num_id = 0;        // Fast integer ID for zero-copy binary streaming
     Road* current_road; // The road the vehicle is on
     Intersection* destination; // Destination of vehicle
     double position_on_road; // The distance traveled by the vehicle, measured from the start of the road
@@ -48,6 +49,7 @@ public:
     int lane{0};                        // current lane, 0 is the innermost
     double stuck_time{0.0};             // seconds spent standing still
     double last_gap{1e9};               // gap the last advance() actually used
+    std::size_t sim_index = 0;          // Fast zero-overhead index in simulator fleet vector
 
     // Constructor
     Vehicle(std::string id, double max_speed, double max_accel, double max_decel);

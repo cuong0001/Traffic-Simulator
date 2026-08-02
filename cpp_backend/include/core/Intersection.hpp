@@ -1,12 +1,14 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <cstdint>
 #include "core/TrafficLight.hpp" 
 class Road;
 
 class Intersection {
 public:
     std::string name;         // Intersection id, used as the key in TrafficGraph
+    uint32_t index = 0;       // Fast zero-overhead integer ID
     std::string display_name; // Human-readable label, e.g. "Hillside & 1st"
     std::string zone;         // Region the node sits in ("", "downtown", "roundabout", ...)
     double x;

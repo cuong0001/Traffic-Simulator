@@ -8,6 +8,8 @@
 #include "routing/BFS.hpp"
 #include "routing/Dijkstra.hpp"
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <cmath>
 
@@ -84,6 +86,22 @@ Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_
     unsigned h = 0;
     for (char c : id) h = h * 31u + static_cast<unsigned>(c);
     idm_factor = 0.8 + 0.2 * ((h % 100u) / 99.0);
+
+    // Vehicle ids are always "<type><counter>" (TrafficSimulator::spawn_locked),
+    // so the counter is the maximal trailing digit run -- this reconstructs
+    // correctly regardless of which vehicle type prefixes it, unlike a fixed
+    // 'v' prefix check (which never matched: real prefixes are car/bus/
+    // emergency/motorbike). The frontend rebuilds the display id as
+    // TYPE_NAMES[type] + num_id from the binary snapshot, so this has to stay
+    // reversible; the hash fallback below only fires for a hand-built id with
+    // no trailing digits at all, which spawn_locked never produces.
+    std::size_t digits_start = id.size();
+    while (digits_start > 0 && std::isdigit(static_cast<unsigned char>(id[digits_start - 1]))) {
+        --digits_start;
+    }
+    num_id = digits_start < id.size()
+                 ? static_cast<uint32_t>(std::strtoul(id.c_str() + digits_start, nullptr, 10))
+                 : static_cast<uint32_t>(h);
 }
 
 // Intelligent Driver Model acceleration.

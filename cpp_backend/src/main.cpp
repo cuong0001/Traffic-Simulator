@@ -60,8 +60,10 @@ int main(int argc, char** argv) {
         }
     }).detach();
 
-    // Publisher: rebuilds the /api/state payload 20x a second so serving it
-    // costs a pointer copy instead of a lock on the simulation.
+    // Publisher: rebuilds the /api/state payload 10x a second (see
+    // publish_loop()) so serving it costs a pointer copy instead of a lock on
+    // the simulation. Vehicle positions don't wait on this -- tick() publishes
+    // its own binary snapshot every tick (20 Hz), served from /api/stateBin.
     sim.start_publishing();
 
     // Minimal JSON string escaper for the few places main() builds a reply
@@ -178,6 +180,17 @@ int main(int argc, char** argv) {
         }
         if (p == "/api/clearVehicles") {
             return "{\"ok\":true,\"removed\":" + std::to_string(sim.clear_vehicles()) + "}";
+        }
+        if (p == "/api/stateBin") {
+            // Lock-free, same as /api/state: served from the copy tick()
+            // publishes every 50ms, so a request never blocks behind a tick.
+            // The direct call is only the cold start, before the first tick.
+            if (auto snap = sim.binary_snapshot()) {
+                return std::string(reinterpret_cast<const char*>(snap->data()), snap->size());
+            }
+            std::vector<uint8_t> bin_buf;
+            sim.encode_binary_snapshot(bin_buf);
+            return std::string(reinterpret_cast<const char*>(bin_buf.data()), bin_buf.size());
         }
         if (p == "/api/vehicle") {
             // Either retarget the vehicle, change its routing strategy, or both.

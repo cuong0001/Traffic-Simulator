@@ -4,6 +4,7 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <filesystem>
 #include <sstream>
@@ -132,6 +133,11 @@ void TrafficSimulator::tick(double dt) {
     tick_leads_and_physics(dt);
     tick_cleanup_and_spawn(dt);
     tick_statistics(dt);
+
+    // Positions are what actually needs tick-rate freshness; everything else
+    // in state_json() (lights, roads, events, stats) still goes through
+    // publish_loop()'s own, slower cadence.
+    publish_binary_snapshot_locked();
 }
 
 // Phase 1: advance the clock, the signals and the events, then let anyone who
@@ -179,20 +185,13 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
 // everyone. Leaders are snapshotted first -- if we resolved them lazily, the
 // first vehicle to move would change what the second one sees this tick.
 void TrafficSimulator::tick_leads_and_physics(double dt) {
-    // Leaders FIRST, then right of way. solve_junctions() has to know what is
-    // already in front of a vehicle before it can tell whether entering the
-    // junction would strand it across the box, and it writes the stop line back
-    // into this same array.
+    for (std::size_t i = 0; i < vehicles_.size(); ++i) {
+        vehicles_[i]->sim_index = i;
+    }
+
     std::vector<std::pair<Vehicle*, double>> leaders;
     leaders.reserve(vehicles_.size());
     for (Vehicle* v : vehicles_) leaders.push_back(lead_in_lane(v));
-
-    // The wait-for graph: entry i is the ONE vehicle that vehicle i is stuck
-    // behind, or -1. Because each vehicle waits on at most one other, the graph
-    // is functional and a deadlock is exactly a cycle in it.
-    std::unordered_map<const Vehicle*, int> index_of;
-    index_of.reserve(vehicles_.size() * 2);
-    for (std::size_t i = 0; i < vehicles_.size(); ++i) index_of[vehicles_[i]] = static_cast<int>(i);
 
     std::vector<int> waiting_on(vehicles_.size(), -1);
 
@@ -201,12 +200,11 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
         Vehicle* lead = leaders[i].first;
         if (lead && leaders[i].second < kWaitEdgeGap &&
             lead->current_speed < kStoppedSpeed) {
-            auto at = index_of.find(lead);
-            if (at != index_of.end()) waiting_on[i] = at->second;
+            waiting_on[i] = static_cast<int>(lead->sim_index);
         }
     }
 
-    solve_junctions(dt, sim_time_, leaders, waiting_on, index_of);
+    solve_junctions(dt, sim_time_, leaders, waiting_on);
     solve_gridlock(sim_time_);
 
     // Searching every tick would be wasted work: a deadlock that exists now
@@ -274,7 +272,13 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     if (fit == graph_->intersections.end() || tit == graph_->intersections.end()) return "";
     if (from == to) return "";
 
-    const std::string id = type + std::to_string(next_id_++);
+    // The id's type prefix must match what type() reports afterward -- the
+    // binary snapshot (encode_binary_snapshot) reconstructs a display id on
+    // the frontend as TYPE_NAMES[type] + num_id, which only works if the
+    // prefix is always one of the four canonical strings. `type` is whatever
+    // the caller passed (e.g. a free-form /api/spawn query param); canonicalize
+    // it the same way create() resolves an unrecognized type to "car".
+    const std::string id = VehicleFactory::canonical_type(type) + std::to_string(next_id_++);
     // The factory hands back a unique_ptr; we take ownership into vehicles_,
     // which is freed by destroy_vehicle_locked() / clear().
     Vehicle* v = VehicleFactory::create(type, id).release();
@@ -576,6 +580,73 @@ void TrafficSimulator::reindex_locked() {
     if (!graph_) return;
     for (const auto& [id, node] : graph_->intersections) node_ids_.push_back(id);
     for (const auto& [id, road] : graph_->edges) road_ids_.push_back(id);
+    // Live map edits (add/split/remove a junction or road) create or drop
+    // Intersection/Road objects after the loader's initial reindex(). Without
+    // this, a newly created node/road keeps its default index 0 and silently
+    // aliases whatever already owns that slot in solve_junctions()'s per-node
+    // buckets.
+    graph_->reindex();
+}
+
+namespace {
+// Must match the frontend's TYPE_NAMES table exactly -- the frontend
+// reconstructs a vehicle's display id as TYPE_NAMES[type] + num_id.
+uint8_t binary_type_code(const std::string& vtype) {
+    if (vtype == "bus") return 1;
+    if (vtype == "emergency") return 2;
+    if (vtype == "motorbike") return 3;
+    return 0;  // car, and any unrecognized type
+}
+}  // namespace
+
+void TrafficSimulator::encode_binary_snapshot(std::vector<uint8_t>& buffer) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    encode_binary_snapshot_locked(buffer);
+}
+
+void TrafficSimulator::encode_binary_snapshot_locked(std::vector<uint8_t>& buffer) {
+    const uint16_t count = static_cast<uint16_t>(vehicles_.size());
+    const std::size_t payload_bytes = sizeof(BinarySnapshotHeader) + count * sizeof(VehicleSnapshotBin);
+    if (buffer.size() < payload_bytes) buffer.resize(payload_bytes);
+
+    BinarySnapshotHeader header;
+    header.magic = 0x54524146; // "TRAF"
+    header.version = 2;
+    header.vehicle_count = count;
+    header.sim_time = sim_time_;
+    std::memcpy(buffer.data(), &header, sizeof(header));
+
+    VehicleSnapshotBin* dest = reinterpret_cast<VehicleSnapshotBin*>(buffer.data() + sizeof(header));
+    for (std::size_t i = 0; i < count; ++i) {
+        const Vehicle* v = vehicles_[i];
+        VehicleSnapshotBin& out = dest[i];
+        out.num_id = v->num_id;
+        out.type = binary_type_code(v->type());
+
+        const Road* r = v->current_road;
+        out.base_index = r ? r->base_index : 0;
+        out.pos = static_cast<float>(v->position_on_road);
+        out.speed = static_cast<float>(v->current_speed);
+        out.lateral_offset = static_cast<float>(v->lateral_offset);
+        out.lane = static_cast<uint8_t>(std::clamp(v->lane, 0, 255));
+
+        uint8_t flags = 0;
+        if (r && r->reverse_twin) flags |= 1;
+        if (v->current_speed < 0.5) flags |= 2;
+        out.flags = flags;
+    }
+}
+
+void TrafficSimulator::publish_binary_snapshot_locked() {
+    auto buf = std::make_shared<std::vector<uint8_t>>();
+    encode_binary_snapshot_locked(*buf);
+    std::lock_guard<std::mutex> lock(bin_snapshot_mtx_);
+    bin_snapshot_ = std::move(buf);
+}
+
+std::shared_ptr<const std::vector<uint8_t>> TrafficSimulator::binary_snapshot() {
+    std::lock_guard<std::mutex> lock(bin_snapshot_mtx_);
+    return bin_snapshot_;
 }
 
 void TrafficSimulator::destroy_vehicle_locked(Vehicle* v) {
@@ -1279,44 +1350,29 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
 void TrafficSimulator::solve_junctions(
     double dt, double sim_time,
     std::vector<std::pair<Vehicle*, double>>& leaders,
-    std::vector<int>& waiting_on,
-    const std::unordered_map<const Vehicle*, int>& index_of) {
+    std::vector<int>& waiting_on) {
 
-    // "w42_3" and "w42_3_r" are the two directions of one physical street.
-    auto base_road = [](const std::string& id) {
-        return id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0
-                   ? id.substr(0, id.size() - 2)
-                   : id;
-    };
-    // Waypoints are shape points the loader inserts so roads follow street
-    // curves, and roundabouts have their own priority rule. Neither is a place
-    // where two streams cross, so neither arbitrates anything.
     auto is_crossing = [](const Intersection* n) {
         return n && !n->is_roundabout && n->zone != "waypoint";
     };
-    // Two vehicles both already going round the SAME ring are not in conflict.
-    // OSM chops a roundabout into several short one-way ways, so the joins
-    // between them are ordinary-looking nodes; without this the circulating
-    // traffic gives way to itself at every join and the ring locks solid.
-    // Entering traffic is not on an internal road, so it still gives way.
     auto both_circulating = [](const Road* a, const Road* b) {
         return a && b && a->is_internal && b->is_internal;
     };
-    // A circulating vehicle never yields to an entering one. The fixed priority
-    // is what makes a roundabout work: the ring always goes, the approach waits.
     auto circulating_has_priority = [](const Road* mine, const Road* theirs) {
         return mine && theirs && mine->is_internal && !theirs->is_internal;
     };
 
     // ---- pre-pass: who is IN each box, and who is approaching it ----------
-    // Occupant = actively crossing (moving, within kJunctionZone before the
-    // node) or still clearing it (within kJunctionZone past it). A vehicle
-    // merely STOPPED at the stop line is not an occupant -- otherwise a queue
-    // tail would block the cross street forever.
-    std::unordered_map<const Intersection*,
-                       std::vector<std::pair<std::size_t, Road*>>> occupants;
-    std::unordered_map<const Intersection*,
-                       std::vector<std::pair<double, std::size_t>>> approaching;
+    const std::size_t num_nodes = graph_ ? graph_->intersections.size() : 0;
+    if (node_occupants_.size() < num_nodes) {
+        node_occupants_.resize(num_nodes);
+        node_approaching_.resize(num_nodes);
+    }
+    for (std::size_t n = 0; n < num_nodes; ++n) {
+        node_occupants_[n].clear();
+        node_approaching_[n].clear();
+    }
+
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
         const Vehicle* w = vehicles_[i];
         Road* r = w->current_road;
@@ -1324,17 +1380,22 @@ void TrafficSimulator::solve_junctions(
         const double to_end = r->length - w->position_on_road;
         const bool moving = w->current_speed > kMovingSpeed;
 
-        if (is_crossing(r->target)) {
-            if (to_end < kJunctionZone &&
-                (moving || to_end < kJunctionZone - 2.0)) {
-                occupants[r->target].push_back({i, r});
+        // Bounds-checked defensively: index/base_index are only ever as fresh as
+        // the last TrafficGraph::reindex(), and an out-of-range index here would
+        // otherwise be a silent out-of-bounds write instead of a loud one.
+        if (is_crossing(r->target) && r->target->index < node_occupants_.size()) {
+            const uint32_t nidx = r->target->index;
+            if (to_end < kJunctionZone && (moving || to_end < kJunctionZone - 2.0)) {
+                node_occupants_[nidx].push_back({i, r});
             } else if (to_end < junction_approach_) {
-                approaching[r->target].push_back({to_end, i});
+                node_approaching_[nidx].push_back(i);
             }
         }
         if (is_crossing(r->source) && w->position_on_road < kJunctionZone &&
-            (moving || w->position_on_road < kJunctionZone - 2.0)) {
-            occupants[r->source].push_back({i, r});
+            (moving || w->position_on_road < kJunctionZone - 2.0) &&
+            r->source->index < node_occupants_.size()) {
+            const uint32_t nidx = r->source->index;
+            node_occupants_[nidx].push_back({i, r});
         }
     }
 
@@ -1345,25 +1406,15 @@ void TrafficSimulator::solve_junctions(
         if (!road) continue;
         Intersection* node = road->target;
         if (!is_crossing(node)) continue;
-        // Sirens do not queue, and neither does anyone the gridlock breaker
-        // has already waved through, or who has been stuck so long that
-        // giving way is the thing keeping them stuck.
         if (v->ignores_lights() || v->is_forced(sim_time)) continue;
         if (v->stuck_time > kIgnoreBlockerAfter) continue;
 
-        // A signalized junction already arbitrates who goes, so rules (a) and
-        // (b) below have nothing to add there -- but rule (c) does. A green
-        // light says when you may go, not whether there is room on the far
-        // side, and driving into a junction with nowhere to land is how a
-        // crossing seizes up.
         const bool signalized = node->is_signalized && node->light_system;
 
-        // Only decide on the APPROACH. Past the stop line the vehicle is
-        // committed: stopping there would leave it parked across the box.
         const double to_end = road->length - v->position_on_road;
         if (to_end >= junction_approach_ || to_end <= kJunctionZone) continue;
 
-        const std::string my_base = base_road(road->id);
+        const uint32_t my_base_idx = road->base_index;
         const Road* my_next =
             (v->route_index + 1 < static_cast<int>(v->route.size()))
                 ? v->route[v->route_index + 1]
@@ -1371,26 +1422,25 @@ void TrafficSimulator::solve_junctions(
         bool yield = false;
         Vehicle* blocker = nullptr;
 
+        const uint32_t nidx = node->index;
+
         // (a) the box is taken by someone off another street
-        auto occ = occupants.find(node);
-        if (!signalized && occ != occupants.end()) {
-            for (const auto& [j, via] : occ->second) {
-                if (j == i) continue;
-                if (base_road(via->id) == my_base) continue;  // same street
-                if (both_circulating(road, via)) continue;    // same roundabout
-                if (circulating_has_priority(road, via)) continue;  // ring beats approach
-                if (via == my_next) continue;   // already on the road I want
+        if (!signalized && nidx < node_occupants_.size()) {
+            for (const auto& occ : node_occupants_[nidx]) {
+                if (occ.vehicle_idx == i) continue;
+                if (occ.road->base_index == my_base_idx) continue;  // same street
+                if (both_circulating(road, occ.road)) continue;    // same roundabout
+                if (circulating_has_priority(road, occ.road)) continue;  // ring beats approach
+                if (occ.road == my_next) continue;   // already on the road I want
                 yield = true;
 
                 // A wait-for edge only when the occupant is genuinely parked.
                 // Waiting behind someone who is driving away is not a deadlock,
                 // and recording it as one would make the cycle search fire on
                 // ordinary traffic.
-                if (vehicles_[j]->current_speed < kStoppedSpeed) 
-                {
-                    blocker = vehicles_[j];
+                if (vehicles_[occ.vehicle_idx]->current_speed < kStoppedSpeed) {
+                    blocker = vehicles_[occ.vehicle_idx];
                 }
-
                 break;
             }
         }
@@ -1402,38 +1452,38 @@ void TrafficSimulator::solve_junctions(
         const double bonus = std::min(v->zone_wait() / 3.0, kZoneBonusCap);
 
         // (b) moving cross traffic that will clearly get there first
-        if (!yield && !signalized) {
+        if (!yield && !signalized && nidx < node_approaching_.size()) {
             const double t_me =
                 to_end / std::max(v->current_speed, kZoneMinSpeed) - bonus;
-            auto app = approaching.find(node);
-            if (app != approaching.end()) {
-                for (const auto& [d, j] : app->second) {
-                    if (j == i) continue;
-                    const Vehicle* w = vehicles_[j];
-                    if (w->current_speed < kMovingSpeed) continue;  // parked
-                    if (!w->current_road) continue;
-                    if (base_road(w->current_road->id) == my_base) continue;
-                    if (both_circulating(road, w->current_road)) continue;
-                    if (circulating_has_priority(road, w->current_road)) continue;  // ring beats approach
-                    const double t_w =
-                        d / std::max(w->current_speed, kZoneMinSpeed);
-                    if (t_w > kZoneHorizon) continue;  // far out in time
-                    // Entering a roundabout gives way to the ring, whoever
-                    // would arrive first. A time-gap race is right between two
-                    // ordinary streets, but a roundabout only works because the
-                    // priority is fixed and everyone knows which way it points.
-                    if (w->current_road->is_internal && !road->is_internal) {
-                        yield = true;
-                        break;
-                    }
-                    // Ties break by index so the decision is symmetric:
-                    // exactly one of the pair yields, never both, never
-                    // neither.
-                    if (t_w < t_me - kZoneTieMargin ||
-                        (std::abs(t_w - t_me) <= kZoneTieMargin && j < i)) {
-                        yield = true;
-                        break;
-                    }
+            for (std::size_t j : node_approaching_[nidx]) {
+                if (j == i) continue;
+                const Vehicle* w = vehicles_[j];
+                if (w->current_speed < kMovingSpeed) continue;  // parked
+                if (!w->current_road) continue;
+                if (w->current_road->base_index == my_base_idx) continue;
+                if (both_circulating(road, w->current_road)) continue;
+                if (circulating_has_priority(road, w->current_road)) continue;  // ring beats approach
+
+                const double d = w->current_road->length - w->position_on_road;
+                const double t_w =
+                    d / std::max(w->current_speed, kZoneMinSpeed);
+                if (t_w > kZoneHorizon) continue;  // far out in time
+
+                // Entering a roundabout gives way to the ring, whoever
+                // would arrive first. A time-gap race is right between two
+                // ordinary streets, but a roundabout only works because the
+                // priority is fixed and everyone knows which way it points.
+                if (w->current_road->is_internal && !road->is_internal) {
+                    yield = true;
+                    break;
+                }
+                // Ties break by index so the decision is symmetric:
+                // exactly one of the pair yields, never both, never
+                // neither.
+                if (t_w < t_me - kZoneTieMargin ||
+                    (std::abs(t_w - t_me) <= kZoneTieMargin && j < i)) {
+                    yield = true;
+                    break;
                 }
             }
         }
@@ -1484,8 +1534,7 @@ void TrafficSimulator::solve_junctions(
                 // edge: it is the junction, not the car in front, that we are
                 // actually stuck on.
                 if (blocker) {
-                    auto at = index_of.find(blocker);
-                    if (at != index_of.end()) waiting_on[i] = at->second;
+                    waiting_on[i] = static_cast<int>(blocker->sim_index);
                 }
             }
             v->add_zone_wait(dt);

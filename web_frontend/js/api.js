@@ -40,6 +40,16 @@ export async function loadState() {
     }
 }
 
+export async function loadBinaryState() {
+    try {
+        const res = await fetch("/api/stateBin", { cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.arrayBuffer();
+    } catch (_) {
+        return null;
+    }
+}
+
 // Control call. Never throws: a failed control must not break the render loop.
 async function control(path, params = {}) {
     const qs = new URLSearchParams(params).toString();

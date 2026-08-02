@@ -229,7 +229,10 @@ section("Motion is interpolated, not chased");
     }
   }
 
-  check("poll rate adapts to sim speed", D.pollInterval >= 45 && D.pollInterval <= 150,
+  // Range matches pollBinary()'s formula in app.js: it's now tied to the
+  // tick-synced /api/stateBin cadence (50ms per tick) rather than
+  // state_json()'s ~100ms publish cadence, so the bounds shrank accordingly.
+  check("poll rate adapts to sim speed", D.pollInterval >= 25 && D.pollInterval <= 50,
         `${D.pollInterval} ms at speed ${(D.simState.speed || 1)}`);
 
   // Restart the loop for the sections below.
