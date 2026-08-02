@@ -105,6 +105,8 @@ target_link_libraries(test_maploader_unit PRIVATE traffic_core)
 #Simulator test=======================================================================
 add_executable(test_simulation_unit tests/unit_tests/test_simulation.cpp)
 target_link_libraries(test_simulation_unit PRIVATE traffic_core)
+add_executable(test_gridlock_stress tests/unit_tests/test_gridlock_stress.cpp)
+target_link_libraries(test_gridlock_stress PRIVATE traffic_core)
 #Traffic signal test==================================================================
 add_executable(test_signals_unit tests/unit_tests/test_signals.cpp)
 target_link_libraries(test_signals_unit PRIVATE traffic_core)
