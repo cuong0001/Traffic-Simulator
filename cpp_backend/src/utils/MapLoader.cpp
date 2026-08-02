@@ -90,7 +90,6 @@ void load_node(TrafficGraph& graph, const json& props, const json& geom,
     node->zone = str_prop(props, "zone");
     node->is_roundabout = (node->zone == "roundabout");
     if (bool_prop(props, "signal", false)) {
-        node->is_signalized = true;
         node->light_system = std::make_unique<TrafficLight>(
             num_prop(props, "sgreen", 25.0), num_prop(props, "samber", 3.0),
             num_prop(props, "sred", 2.0),
@@ -648,7 +647,7 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         auto nit = graph.intersections.find(it->second);
         if (nit == graph.intersections.end()) continue;   // pruned away
         Intersection* node = nit->second.get();
-        if (node->is_signalized) continue;
+        if (node->is_signalized()) continue;
         // A traffic_signals point in OSM is a GUESS about this junction, so it
         // has to earn its light: signalize() clusters the approaches into two
         // opposing phase groups and refuses anything with nothing to
@@ -771,7 +770,7 @@ void MapLoader::load_from_geojson_string(TrafficGraph& graph, const std::string&
     // up, because leaving its approaches unassigned reads as "no group", which
     // fails closed and would hold the junction on red forever.
     for (auto& [id, node] : graph.intersections) {
-        if (!node->is_signalized) continue;
+        if (!node->is_signalized()) continue;
         if (graph.assign_signal_groups(id) > 0) {
             if (node->light_system) node->light_system->set_phase_offset_from(id);
         } else {
@@ -815,7 +814,7 @@ std::string MapLoader::map_json_string(const TrafficGraph& graph) {
             {"x", node->x},
             {"y", node->y},
             {"zone", node->zone},
-            {"signal", node->is_signalized},
+            {"signal", node->is_signalized()},
         });
     }
 
@@ -892,7 +891,7 @@ void MapLoader::write_geojson(const TrafficGraph& graph, const std::string& path
             {"name", node->display_name},
             {"zone", node->zone},
         };
-        if (node->is_signalized && node->light_system) {
+        if (node->is_signalized() && node->light_system) {
             props["signal"] = true;
             props["sgroups"] = node->light_system->get_groups();
             props["sgreen"] = node->light_system->get_green_duration();

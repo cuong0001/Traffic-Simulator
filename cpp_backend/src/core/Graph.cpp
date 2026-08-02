@@ -105,7 +105,6 @@ bool TrafficGraph::signalize(const std::string& node_id, double green) {
     Intersection* node = intersections[node_id].get();
     node->light_system = std::make_unique<TrafficLight>(green, 3.0, 2.0, 2);
     node->light_system->set_phase_offset_from(node->name);
-    node->is_signalized = true;
     return true;
 }
 
@@ -115,5 +114,4 @@ void TrafficGraph::designalize(const std::string& node_id) {
     Intersection* node = it->second.get();
     for (Road* r : node->incoming_edges) r->signal_group = -1;
     node->light_system.reset();
-    node->is_signalized = false;
 }

@@ -51,12 +51,12 @@ std::string TrafficController::random_signalized_node() const {
     for (int attempt = 0; attempt < 64; ++attempt) {
         auto it = graph_->intersections.begin();
         std::advance(it, pick(rng_));
-        if (it->second && it->second->is_signalized && it->second->light_system) {
+        if (it->second && it->second->is_signalized() && it->second->light_system) {
             return it->first;
         }
     }
     for (const auto& [id, node] : graph_->intersections) {
-        if (node && node->is_signalized && node->light_system) return id;
+        if (node && node->is_signalized() && node->light_system) return id;
     }
     return "";  // nothing lit on this map: the event is skipped
 }

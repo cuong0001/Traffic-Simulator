@@ -59,7 +59,7 @@ TEST_CASE("a four-way crossing splits into two opposing phase groups") {
     REQUIRE(g->signalize("M"));
 
     Intersection* m = g->intersections["M"].get();
-    REQUIRE(m->is_signalized);
+    REQUIRE(m->is_signalized());
     REQUIRE(m->incoming_edges.size() == 4);
 
     // The east-west pair must share a group, and so must the north-south pair,
@@ -178,7 +178,7 @@ TEST_CASE("a junction with nothing to arbitrate is refused a guessed signal") {
     // signalize() guesses, so it must refuse: stopping a straight street for
     // itself would be pure loss.
     CHECK_FALSE(g->signalize("M"));
-    CHECK_FALSE(g->intersections["M"]->is_signalized);
+    CHECK_FALSE(g->intersections["M"]->is_signalized());
 
     // assign_signal_groups() is what an explicit map file goes through, and it
     // still assigns -- one shared group, so nobody is stranded on red.
@@ -238,7 +238,7 @@ TEST_CASE("designalize clears the groups off every approach") {
     REQUIRE(g->edges["AM"]->signal_group >= 0);
 
     g->designalize("M");
-    CHECK_FALSE(g->intersections["M"]->is_signalized);
+    CHECK_FALSE(g->intersections["M"]->is_signalized());
     CHECK(g->intersections["M"]->light_system == nullptr);
     for (Road* r : g->intersections["M"]->incoming_edges) {
         CHECK(r->signal_group == -1);

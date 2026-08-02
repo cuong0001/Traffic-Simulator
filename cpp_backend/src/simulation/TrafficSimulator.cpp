@@ -498,7 +498,7 @@ std::string TrafficSimulator::state_json() {
     if (graph_) {
         for (const auto& [id, road] : graph_->edges) {
             if (road->signal_group < 0 || !road->target) continue;
-            if (!road->target->is_signalized) continue;
+            if (!road->target->is_signalized()) continue;
             if (!first) os << ",";
             first = false;
             os << "{\"id\":" << jstr(id)
@@ -1409,7 +1409,7 @@ void TrafficSimulator::solve_junctions(
         if (v->ignores_lights() || v->is_forced(sim_time)) continue;
         if (v->stuck_time > kIgnoreBlockerAfter) continue;
 
-        const bool signalized = node->is_signalized && node->light_system;
+        const bool signalized = node->is_signalized() && node->light_system;
 
         const double to_end = road->length - v->position_on_road;
         if (to_end >= junction_approach_ || to_end <= kJunctionZone) continue;

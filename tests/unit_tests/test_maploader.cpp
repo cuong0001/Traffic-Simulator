@@ -111,7 +111,7 @@ TEST_CASE("nodes keep their label, zone and position") {
     const Intersection* c = g.intersections.at("C").get();
     CHECK(c->x == doctest::Approx(120.0));
     CHECK(c->y == doctest::Approx(90.0));
-    CHECK_FALSE(c->is_signalized);
+    CHECK_FALSE(c->is_signalized());
 }
 
 TEST_CASE("a signalized node keeps its light timings") {
@@ -120,7 +120,7 @@ TEST_CASE("a signalized node keeps its light timings") {
 
     REQUIRE(g.intersections.count("B") == 1);
     const Intersection* b = g.intersections.at("B").get();
-    REQUIRE(b->is_signalized);
+    REQUIRE(b->is_signalized());
     REQUIRE(b->light_system != nullptr);
     CHECK(b->light_system->get_groups() == 3);
     CHECK(b->light_system->get_green_duration() == doctest::Approx(18.5));

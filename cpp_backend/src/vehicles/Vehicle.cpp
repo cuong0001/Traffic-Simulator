@@ -358,7 +358,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
 
     Intersection* next_node = current_road->target;
     const bool forced = is_forced(sim_time);
-    if (!ignores_lights() && !forced && next_node && next_node->is_signalized &&
+    if (!ignores_lights() && !forced && next_node && next_node->is_signalized() &&
         current_road->signal_group >= 0) {
         // The stop line sits a few metres BEFORE the junction, so a vehicle
         // held on red waits at the line instead of standing in the box. The
