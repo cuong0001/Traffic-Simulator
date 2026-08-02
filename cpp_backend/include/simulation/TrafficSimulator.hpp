@@ -48,12 +48,6 @@ std::vector<std::size_t> find_gridlock_cycle_leaders
 
 class TrafficSimulator {
 public:
-    // Also filled by solve_junctions(): when a vehicle gives way to something
-    // that is genuinely STOPPED in the junction box, the thing it is waiting
-    // for. A moving occupant is not recorded -- you are not deadlocked behind
-    // someone who is driving away.
-    std::unordered_map<Vehicle*, Vehicle*> zone_blocker_;
-
     // M7: break deadlocks by finding cycles in the wait-for graph. Each entry
     // of `waiting_on` is the index of the one vehicle that vehicle is stuck
     // behind, or -1. A real deadlock is a cycle in that graph.
@@ -88,9 +82,29 @@ public:
     void set_auto_spawn(bool on);
     void set_random_events(bool on);
 
-    // traffic-generation tuning 
+    // traffic-generation tuning
     void set_target_vehicles(int n);   // 0 = unlimited
     void set_spawn_rate(double per_second);
+
+    // ---- the give-way distance -------------------------------------------
+    // How close to an unsignalized junction a vehicle has to be before it
+    // starts working out whether to give way, in METRES measured from the far
+    // end of the road it is on. THIS IS THE KNOB. Outside it a driver simply
+    // drives; inside it, it compares arrival times with the cross traffic.
+    //
+    // Too large and everyone negotiates all the time: with the reference's
+    // 26 m on a real OpenStreetMap extract, whose median block is 27 m, a car
+    // is inside the window from the moment it turns into a street and half the
+    // city is haggling over right of way at any instant. Real drivers commit a
+    // second or two out, so the default is derived from the map (see
+    // default_junction_approach) and is ~13 m on a city extract.
+    //
+    // Live-tunable through GET /api/junctionApproach?value=<metres>, and
+    // reported in /api/state, so it can be dialled in while watching traffic
+    // rather than by rebuilding. Clamped to [7, 60]. Loading a map re-derives
+    // it: the right distance belongs to the city, not to the session.
+    void set_junction_approach(double metres);
+    double junction_approach() const { return junction_approach_; }
     // Routing strategy used by new vehicles: "astar" | "dijkstra" | "bfs".
     bool set_algorithm(const std::string& name);
 
@@ -190,6 +204,8 @@ private:
     int target_vehicles_ = 120;     // 0 = unlimited
     double spawn_rate_ = 1.0;       // vehicles per second when auto-spawning
     std::string algorithm_ = "dijkstra";
+    // Metres. See set_junction_approach(). Re-derived from the map on load.
+    double junction_approach_ = 26.0;
 
     // per-tick traffic solver (mtx_ held) 
     // A Vehicle only sees its own road, so everything needing a global view
@@ -206,18 +222,34 @@ private:
     std::atomic<bool> publishing_{false};
 
     void solve_lane_changes(double sim_time);          // MOBIL
-    void solve_junctions(double dt, double sim_time);  // yielding
+
+    // Right of way at unsignalized junctions. Takes the leader array that has
+    // already been resolved for this tick and, for every vehicle told to give
+    // way, replaces its leader with the STOP LINE -- so the vehicle brakes to
+    // it under IDM instead of being frozen. Also records the wait-for edge when
+    // what it is waiting for is genuinely parked in the box.
+    //
+    // It needs the leaders as INPUT as well as output: rule (c) below cannot
+    // tell whether entering the junction would leave the vehicle stranded
+    // across it without knowing what is already in front.
+    void solve_junctions(double dt, double sim_time,
+                         std::vector<std::pair<Vehicle*, double>>& leaders,
+                         std::vector<int>& waiting_on,
+                         const std::unordered_map<const Vehicle*, int>& index_of);
     void solve_gridlock(double sim_time);              // forced / rescue
 
-    // Filled by solve_junctions(): for each vehicle told to give way, the
-    // bumper-to-stop-line gap it must not drive past this tick. Applied when
-    // leaders are resolved, so the vehicle BRAKES to the line under IDM
-    // instead of being teleported to a standstill.
-    std::unordered_map<Vehicle*, double> zone_stop_gap_;
+    // Metres derived from the map's own scale -- see set_junction_approach().
+    static double default_junction_approach(const TrafficGraph& graph);
 
     // Solver counters, reported by /api/state for the statistics panel.
     long lane_changes_ = 0;
+    // Two different reasons to wait, counted apart because they mean opposite
+    // things. yields_ is "I gave way to another stream"; box_waits_ is "the
+    // road beyond the junction is full, so I stopped at the line rather than
+    // stall across it". A rise in the first says right of way is contested; a
+    // rise in the second says the network is backing up.
     long yields_ = 0;
+    long box_waits_ = 0;
     long forced_throughs_ = 0;
     long rescues_ = 0;
 

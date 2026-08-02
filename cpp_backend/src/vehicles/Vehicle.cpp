@@ -13,8 +13,8 @@
 
 namespace {
 // Intelligent Driver Model constants (Treiber et al.).
-constexpr double kIdmT = 1.5;              // desired safe time headway (s)
-constexpr double kIdmS0 = 2.0;             // minimum standstill gap (m)
+constexpr double kIdmT = 0.25;             // desired safe time headway (s) for tight urban platoons
+constexpr double kIdmS0 = 1.0;              // minimum standstill gap (m)
 constexpr double kIdmA = 2.5;              // comfortable acceleration (m/s^2)
 constexpr double kIdmB = 3.0;              // comfortable deceleration (m/s^2)
 constexpr double kContactMargin = 0.25;    // m kept between bumpers
@@ -87,15 +87,20 @@ Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_
 }
 
 // Intelligent Driver Model acceleration.
-//   v     current speed (m/s)      v0   desired free-flow speed (m/s)
-//   v_lead speed of the car ahead  gap  bumper-to-bumper distance (m)
 double Vehicle::idm_accel(double v, double v0, double v_lead, double gap) {
     v0 = std::max(0.5, v0);
     gap = std::max(0.1, gap);
     const double delta_v = v - v_lead;
     const double sqrt_ab = 2.0 * std::sqrt(kIdmA * kIdmB);
     const double s_star = kIdmS0 + std::max(0.0, v * kIdmT + (v * delta_v) / sqrt_ab);
-    return kIdmA * (1.0 - std::pow(v / v0, 4) - std::pow(s_star / gap, 2));
+    double a = kIdmA * (1.0 - std::pow(v / v0, 4) - std::pow(s_star / gap, 2));
+
+    // Crisp launch: when accelerating from low speed into a clear gap,
+    // apply full acceleration instead of lingering.
+    if (v < 3.0 && gap > 2.0 * s_star && v_lead >= v) {
+        a = std::max(a, kIdmA * 0.95);
+    }
+    return a;
 }
 
 double Vehicle::desired_speed_on(const Road& road) const {
@@ -174,6 +179,9 @@ void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
         route.insert(route.end(), new_route.begin(), new_route.end());
         route_index = 0; 
         is_reached_destination = false;
+        route_dirty_ = false;
+        recompute_cooldown_ = 5.0;  // Minimum 5s cooldown between reroutes
+        ++recalculations_;
     }
 }
 
@@ -208,16 +216,11 @@ bool Vehicle::remaining_route_contains(const std::string& road_id) const {
 }
 
 void Vehicle::onNotify(const TrafficNotification& notification) {
-    // Only replan when the change can actually reach us. The typed payload is
-    // what makes this possible: with a plain string every event would force
-    // every vehicle in the city to recompute, even for a closure it is never
-    // going to drive past.
     using Kind = TrafficNotification::Kind;
     switch (notification.kind) {
         case Kind::RoadClosed:
         case Kind::Accident:
         case Kind::Congestion:
-            // Something got expensive on a road we still have to drive.
             if (notification.roadId.empty() ||
                 remaining_route_contains(notification.roadId)) {
                 needs_reroute_ = true;
@@ -227,25 +230,24 @@ void Vehicle::onNotify(const TrafficNotification& notification) {
         case Kind::RoadReopened:
         case Kind::AccidentCleared:
         case Kind::CongestionCleared:
-            // A shortcut may have come back; only worth a look if we are not
-            // already driving through it.
             if (!notification.roadId.empty() &&
                 !remaining_route_contains(notification.roadId)) {
                 needs_reroute_ = true;
+                const std::size_t h = std::hash<std::string>{}(id);
+                const double stagger = 1.0 + static_cast<double>(h % 100) / 10.0;
+                recompute_cooldown_ = std::max(recompute_cooldown_, stagger);
             }
             return;
 
         case Kind::TrafficLight:
         case Kind::TrafficLightRestored:
-            // Signal timing does not change which roads exist, and the
-            // car-following model already reacts to the light itself.
             return;
     }
 }
 
 bool Vehicle::consume_reroute_flag() {
     const bool flagged = needs_reroute_;
-    needs_reroute_ = false;
+    if (flagged) needs_reroute_ = false;
     return flagged;
 }
 
@@ -297,10 +299,10 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
 }
 
 // ---- gridlock relief ----------------------------------------------------
-void Vehicle::rescue_to(std::size_t new_index) {
-    if (new_index >= route.size()) return;
+bool Vehicle::rescue_to(std::size_t new_index) {
+    if (new_index >= route.size()) return false;
     Road* dest = route[new_index];
-    if (!dest) return;
+    if (!dest) return false;
 
     int dest_lane = lane;
     const std::vector<int> ok = allowed_lanes(dest->lanes);
@@ -309,7 +311,7 @@ void Vehicle::rescue_to(std::size_t new_index) {
     }
     // Breaking the deadlock must not mean materialising inside someone else.
     // Leave the stuck counters alone so the next tick tries again.
-    if (!entry_slot_free(*dest, dest_lane, 0.0, length_meters())) return;
+    if (!entry_slot_free(*dest, dest_lane, 0.0, length_meters())) return false;
 
     if (current_road) current_road->remove_vehicle(this);
     route_index = static_cast<int>(new_index);
@@ -321,6 +323,7 @@ void Vehicle::rescue_to(std::size_t new_index) {
     stuck_time = 0.0;
     zone_wait_ = 0.0;
     current_road->add_vehicle(this);
+    return true;
 }
 
 // ---- simulator-driven movement ------------------------------------------
@@ -329,6 +332,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
 
     travel_time_ += dt;
     lane_change_cooldown_ = std::max(0.0, lane_change_cooldown_ - dt);
+    recompute_cooldown_ = std::max(0.0, recompute_cooldown_ - dt);
 
     // ---- 1. desired speed, capped by a red light ahead --------------------
     const double v0 = desired_speed_on(*current_road);
@@ -428,7 +432,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
             int next_lane = lane;
             const std::vector<int> ok = allowed_lanes(next->lanes);
             if (std::find(ok.begin(), ok.end(), next_lane) == ok.end()) {
-                next_lane = ok.empty() ? 0 : ok.front();
+                next_lane = ok.empty() ? 0 : ok.back();
             }
 
             // Someone may have taken the slot earlier in this same tick, after

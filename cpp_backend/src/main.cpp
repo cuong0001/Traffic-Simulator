@@ -157,6 +157,14 @@ int main(int argc, char** argv) {
             sim.set_spawn_rate(num("value", 1.0));
             return ok_true;
         }
+        // How close to a junction a driver starts deciding whether to give way,
+        // in metres. Live so it can be dialled in against moving traffic; the
+        // current value is in /api/state as "junctionApproach".
+        if (p == "/api/junctionApproach") {
+            sim.set_junction_approach(num("value", 14.0));
+            return "{\"ok\":true,\"value\":" +
+                   std::to_string(sim.junction_approach()) + "}";
+        }
         if (p == "/api/algorithm") {
             return sim.set_algorithm(get("name")) ? ok_true
                  : "{\"ok\":false,\"error\":\"unknown algorithm\"}";

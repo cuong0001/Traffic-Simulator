@@ -325,7 +325,16 @@ section("Zoom reaches street level");
   check("zoom reaches the cap", Math.abs(D.T.s - maxS) < 1e-6,
         `${D.T.s.toFixed(1)} px/m (cap ${maxS.toFixed(1)})`);
 
-  // A 4.5 m car at the deepest zoom, as actually drawn.
+  // A 4.5 m car at the deepest zoom, as actually drawn. Centre the camera on a
+  // real vehicle first: at 60 px/m the viewport covers about 20 x 10 m, so
+  // zooming at an arbitrary point and hoping a car is under it makes the
+  // measurement depend on how busy the map happens to be.
+  const subject = D.drawnVehicles()[0];
+  check("a vehicle to zoom in on", !!subject);
+  if (subject) {
+    D.T.tx = canvasEl.width / 2 - subject.x * D.T.s;
+    D.T.ty = canvasEl.height / 2 - subject.y * D.T.s;
+  }
   dom.ctx.__reset();
   frame();
   const sprites = dom.ctx.__calls.filter((c) => c.op === "fillRect" &&

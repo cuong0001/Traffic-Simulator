@@ -83,8 +83,10 @@ std::pair<Vehicle*, double> Road::get_lead_vehicle(Vehicle* current_vehicle) {
 // jam it is in. `sensitivity` is how much this vehicle is affected -- 1.0 for
 // ordinary traffic, lower for an ambulance filtering through.
 double Road::effective_speed_ms(double sensitivity) const {
+    // Moderate congestion slowdown (down to ~50% of speed limit at worst)
+    // keeping vehicles moving smoothly through junctions to prevent gridlock.
     const double slowdown =
-        1.0 - 0.85 * congestion_level * std::clamp(sensitivity, 0.0, 1.0);
+        1.0 - 0.50 * congestion_level * std::clamp(sensitivity, 0.0, 1.0);
     return std::max(1.0, speed_limit_ms() * slowdown);  // never below 1 m/s
 }
 
@@ -111,12 +113,13 @@ void Road::update_travel_cost() {
         return;
     }
 
-    // Calculating the composite traffic congestion level: Congestion due to current traffic volume + Congestion due to events.
-    // capacity_scale < 1.0 (accident) increase 
+    // Physical road capacity scaled by active events
     const double actual_capacity = std::max(1.0, lanes * capacity * capacity_scale);
-    double base_congestion = vehicles.size() / actual_capacity;
-    
-    congestion_level = std::min(1.0, base_congestion + event_congestion);
+    const double density = static_cast<double>(vehicles.size()) / actual_capacity;
+
+    // Vehicle density contributes smoothly up to 0.70; events supply the rest.
+    const double base_congestion = 0.70 * std::pow(std::min(1.0, density), 1.3);
+    congestion_level = std::clamp(base_congestion + event_congestion, 0.0, 1.0);
 
     // Recomputed travel cost.
     travel_cost = base_weight * (1.0 + congestion_level);

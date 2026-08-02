@@ -555,24 +555,58 @@ function runPhase(rb, deadline) {
       for (; rb.cursor < drawRoads.length; rb.cursor++) {
         if ((rb.cursor & 63) === 0 && performance.now() > deadline) return false;
         const r = drawRoads[rb.cursor];
+        const isRev = r.id.endsWith("_r");
+        if (isRev) continue;  // Base road handles asphalt and markings for full street
+
         const a = nodeById[r.from], b = nodeById[r.to];
         if (!a || !b || !segVisible(a, b, cull)) continue;
         const x1 = wx(a.x), y1 = wy(a.y), x2 = wx(b.x), y2 = wy(b.y);
+        const totalW = (roadWOf[r.id] || roadW);
         g.strokeStyle = C.asphalt;
-        g.lineWidth = (roadWOf[r.id] || roadW) * T.s;
+        g.lineWidth = totalW * T.s;
         g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+
         if (!laneDetail) continue;
         const len = Math.hypot(x2 - x1, y2 - y1) || 1;
         const px = -(y2 - y1) / len, py = (x2 - x1) / len;
-        const bound = LANE_W * LANE_VIS * US * T.s;
-        g.strokeStyle = C.dash;
-        g.setLineDash([9 * US * T.s, 13 * US * T.s]);
-        g.lineWidth = Math.max(1, 1.4 * US * T.s);
-        for (const o of [bound, -bound]) {
+
+        const revRoad = roadById[r.id + "_r"];
+        const twoWay = !r.oneway && !!revRoad;
+
+        const mark = (o, dashed, strokeStyle = C.dash) => {
+          g.strokeStyle = strokeStyle;
+          g.setLineDash(dashed ? [9 * US * T.s, 13 * US * T.s] : []);
           g.beginPath();
-          g.moveTo(x1 + px * o, y1 + py * o);
-          g.lineTo(x2 + px * o, y2 + py * o);
+          g.moveTo(x1 + px * o * T.s, y1 + py * o * T.s);
+          g.lineTo(x2 + px * o * T.s, y2 + py * o * T.s);
           g.stroke();
+        };
+
+        g.lineWidth = Math.max(1, 1.4 * US * T.s);
+
+        if (twoWay) {
+          // Centre line: solid line separating the two opposing directions
+          mark(0, false, C.dash);
+          // Lane dividers within each direction
+          const halfW = totalW * 0.5;
+          const lanesFwd = Math.max(1, r.lanes || 1);
+          const laneWFwd = halfW / lanesFwd;
+          for (let i = 1; i < lanesFwd; i++) {
+            mark(i * laneWFwd, true);
+          }
+          const lanesRev = Math.max(1, revRoad.lanes || lanesFwd);
+          const laneWRev = halfW / lanesRev;
+          for (let i = 1; i < lanesRev; i++) {
+            mark(-i * laneWRev, true);
+          }
+        } else {
+          // 1-way road: lane dividers between adjacent lanes
+          const totalLanes = Math.max(1, r.lanes || 1);
+          const laneW = totalW / totalLanes;
+          const halfW = totalW * 0.5;
+          for (let i = 1; i < totalLanes; i++) {
+            mark(-halfW + i * laneW, true);
+          }
         }
         g.setLineDash([]);
       }
@@ -828,9 +862,9 @@ function drawVehicles() {
     if (e.x < rMinX - 40 || e.x > rMaxX + 40 || e.y < rMinY - 40 || e.y > rMaxY + 40) continue;
 
     const lenM = VEH_LEN[e.type] || 4.5;
-    // VS, not US: a car at true map scale is a speck on a city map. Capped to
-    // ~2.8 lane widths so the exaggeration can never spill onto the pavement.
-    const w = Math.max(3, Math.min(lenM * VS * 1.6, laneWidthOf(e.road) * 2.8) * T.s);
+    // Sprite size depends on physical vehicle length and map zoom scale,
+    // ensuring size never changes when switching between roads of different lane counts.
+    const w = Math.max(3, lenM * VS * 1.5 * T.s);
     const h = w * 0.5;
     const sx = wx(e.x), sy = wy(e.y);
     const heading = smoothHeading(e.id, e.h);
@@ -888,36 +922,48 @@ function drawSignals() {
 // fresh key array allocated each time.
 let liveRoads = [];
 
-// Below this the tint is a wash of orange over most of the city and says
-// nothing; the reference uses the same threshold.
+// Below this the tint is a wash over the road and says nothing;
+// reference project uses the same threshold.
 const CONGESTION_FLOOR = 0.12;
 
+const CONG_COLORS = ["#5d9b4f", "#a5b23f", "#d9a33b", "#d96f33", "#c23b3b"];
+
+function congestionColor(c) {
+  const idx = Math.min(CONG_COLORS.length - 1, Math.floor(c * CONG_COLORS.length));
+  return CONG_COLORS[idx];
+}
+
 function rebuildLiveRoads() {
-  const merged = new Map();
+  const list = [];
   for (const id of Object.keys(roadState)) {
     const st = roadState[id];
     const c = st.congestion || 0;
     if (c <= CONGESTION_FLOOR && !st.closed) continue;
-    const base = id.endsWith("_r") ? id.slice(0, -2) : id;
+    const isRev = id.endsWith("_r");
+    const base = isRev ? id.slice(0, -2) : id;
     const r = roadById[base] || roadById[id];
     if (!r) continue;
-    const a = nodeById[r.from], b = nodeById[r.to];
+
+    const fromId = isRev ? r.to : r.from;
+    const toId = isRev ? r.from : r.to;
+    const a = nodeById[fromId], b = nodeById[toId];
     if (!a || !b) continue;
-    let e = merged.get(base);
-    // Both directions share one ribbon, so show the worse of the two -- and
-    // one barrier, not two stacked on the same midpoint.
-    if (!e) {
-      e = { base, ax: a.x, ay: a.y, bx: b.x, by: b.y, c, closed: !!st.closed };
-      merged.set(base, e);
-    } else {
-      if (c > e.c) e.c = c;
-      e.closed = e.closed || !!st.closed;
-    }
+
+    list.push({
+      id,
+      base,
+      isRev,
+      isOneway: !!r.oneway,
+      ax: a.x, ay: a.y,
+      bx: b.x, by: b.y,
+      c,
+      closed: !!st.closed
+    });
   }
-  liveRoads = [...merged.values()];
+  liveRoads = list;
 }
 
-// Congested / closed roads, drawn over the asphalt.
+// Congested / closed roads, drawn over the asphalt per direction (50% width each for 2-way roads).
 function drawRoadStatus() {
   if (!liveRoads.length) return;
   const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
@@ -926,17 +972,54 @@ function drawRoadStatus() {
   for (const e of liveRoads) {
     if (Math.max(e.ax, e.bx) < rMinX || Math.min(e.ax, e.bx) > rMaxX ||
         Math.max(e.ay, e.by) < rMinY || Math.min(e.ay, e.by) > rMaxY) continue;
-    ctx.strokeStyle = e.closed
-      ? "rgba(239,68,68,.75)"
-      : `rgba(245,158,11,${Math.min(0.6, 0.15 + e.c * 0.5)})`;
-    ctx.lineWidth = Math.max(1.5, (roadWOf[e.base] || roadW) * T.s * 0.5);
-    ctx.beginPath();
-    ctx.moveTo(wx(e.ax), wy(e.ay));
-    ctx.lineTo(wx(e.bx), wy(e.by));
-    ctx.stroke();
+
+    const dx = e.bx - e.ax;
+    const dy = e.by - e.ay;
+    const len = Math.hypot(dx, dy);
+
+    const totalWWorld = roadWOf[e.base] || roadW;
+    let startX = e.ax, startY = e.ay;
+    let endX = e.bx, endY = e.by;
+    let strokeW = totalWWorld * T.s * 0.5;
+
+    if (!e.isOneway && len > 1e-6) {
+      // Offset perpendicular to the right side of travel direction (matching vehicle placeOnRoad math)
+      const nx = -dy / len;
+      const ny = dx / len;
+      const offset = totalWWorld * 0.25;
+      startX += nx * offset;
+      startY += ny * offset;
+      endX += nx * offset;
+      endY += ny * offset;
+    } else if (e.isOneway) {
+      strokeW = totalWWorld * T.s * 0.8;
+    }
+
+    if (e.c > CONGESTION_FLOOR) {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = congestionColor(e.c);
+      ctx.lineWidth = Math.max(1.5, strokeW);
+      ctx.beginPath();
+      ctx.moveTo(wx(startX), wy(startY));
+      ctx.lineTo(wx(endX), wy(endY));
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (e.closed) {
-      drawBarrier(wx((e.ax + e.bx) / 2), wy((e.ay + e.by) / 2),
-                  Math.atan2(e.by - e.ay, e.bx - e.ax));
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = "rgba(239,68,68,.85)";
+      ctx.lineWidth = Math.max(2.0, strokeW);
+      ctx.beginPath();
+      ctx.moveTo(wx(startX), wy(startY));
+      ctx.lineTo(wx(endX), wy(endY));
+      ctx.stroke();
+      ctx.restore();
+
+      drawBarrier(wx((startX + endX) / 2), wy((startY + endY) / 2),
+                  Math.atan2(dy, dx));
     }
   }
 }
@@ -1230,8 +1313,7 @@ function describe(hit) {
       ["Speed", `${((v.speed || 0) * 3.6).toFixed(0)} km/h`],
       ["Road", v.road || "—"],
       ["Position", `${(v.pos || 0).toFixed(1)} m`],
-      ["Route", routeVehicleId === hit.id && routeRoadIds.length
-                  ? `${routeRoadIds.length} roads left` : "—"],
+      ["Reroutes", v.recalcs ?? 0],
     ]];
   }
   if (hit.kind === "junction") {
