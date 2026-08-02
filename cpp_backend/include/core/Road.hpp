@@ -25,6 +25,9 @@ public:
     std::string id;
     uint32_t index = 0;       // Fast zero-overhead integer ID
     uint32_t base_index = 0;  // Shared ID for two-way street twin roads (ignores _r)
+    bool reverse_twin = false; // true for the "id_r" half of a two-way pair --
+                               // set by TrafficGraph::reindex() so callers on a
+                               // hot path don't need to string-compare `id`.
 
     Intersection* source;
     Intersection* target;

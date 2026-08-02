@@ -833,6 +833,11 @@ std::string MapLoader::map_json_string(const TrafficGraph& graph) {
             {"lanes", road->lanes},
             {"speed_kmh", road->speed_limit},
             {"oneway", road->is_one_way},
+            // Lets the frontend resolve /api/stateBin's per-vehicle base_index
+            // back to a road id via a baseIndexToRoadId map, without doubling
+            // the payload by also emitting the "_r" twin (it shares this same
+            // base_index and is synthesised client-side already).
+            {"base_index", road->base_index},
         });
     }
 

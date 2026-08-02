@@ -55,12 +55,12 @@ void TrafficGraph::reindex() {
     for (auto& [id, road] : edges) {
         if (!road) continue;
         road->index = edge_idx++;
-        std::string base_id = id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0
-                                  ? id.substr(0, id.size() - 2)
-                                  : id;
+        const bool is_reverse = id.size() > 2 && id.compare(id.size() - 2, 2, "_r") == 0;
+        std::string base_id = is_reverse ? id.substr(0, id.size() - 2) : id;
         auto [it, inserted] = base_name_to_id.try_emplace(base_id, base_idx);
         if (inserted) base_idx++;
         road->base_index = it->second;
+        road->reverse_twin = is_reverse;
     }
 }
 

@@ -17,7 +17,7 @@
 
 "use strict";
 
-import { loadMap, loadState, Sim } from "./api.js";
+import { loadMap, loadState, loadBinaryState, Sim } from "./api.js";
 import { Sprites } from "./sprites.js";
 import * as UI from "./ui.js";
 import { OsmPicker, importArea } from "./osm.js";
@@ -57,6 +57,7 @@ let spareLayer = null;
 let mapData = null;
 let nodeById = {};
 let roadById = {};
+let baseIndexToRoadId = {};   // Road.base_index (server) -> forward road id
 let drawRoads = [];
 let roadWOf = {};
 let signalHeads = [];
@@ -255,6 +256,16 @@ function rebuildDerived() {
   drawRoads = mapData.roads.filter(
     (r) => !(r.id.endsWith("_r") && roadById[r.id.slice(0, -2)])
   );
+
+  // /api/stateBin identifies a vehicle's road by Road::base_index (shared by
+  // a two-way street's forward and "_r" twin) plus a direction bit, instead of
+  // the string id -- so this is how loadBinaryState() resolves it back to an
+  // entry in roadById. Only forward roads carry base_index in /api/map; the
+  // twin shares the same key and is looked up via its synthesised "_r" id.
+  baseIndexToRoadId = {};
+  for (const r of mapData.roads) {
+    if (r.base_index !== undefined) baseIndexToRoadId[r.base_index] = r.id;
+  }
 
   // /api/map emits one entry per physical street, but /api/state and
   // /api/vehicle/detail both speak in DIRECTED ids. Without the twins a third
@@ -741,6 +752,12 @@ function placeOnRoad(roadId, pos, lane = 0, lat = 0) {
   };
 }
 
+// Lights, roads, events, log, stats, solver counters -- everything /api/state
+// carries EXCEPT vehicle placement. That part now comes from applyBinaryState()
+// below, polled on its own, faster, tick-synced cadence: state_json() is only
+// rebuilt every ~100ms (see TrafficSimulator::publish_loop), so tying vehicle
+// motion to it is what made rendering feel stale even after a faster wire
+// format existed. See docs/PLAN-fast-ids-and-streaming.md, Phase 3.
 function applyState(s) {
   simState = s;
   lightState = {};
@@ -750,14 +767,55 @@ function applyState(s) {
   }
   roadState = {};
   for (const r of s.roads || []) roadState[r.id] = r;
+}
+
+// Vehicle type codes /api/stateBin uses -- must match
+// TrafficSimulator.cpp's binary_type_code() exactly.
+const BIN_TYPE_NAMES = ["car", "bus", "emergency", "motorbike"];
+const BIN_HEADER_BYTES = 16;  // magic u32 + version u16 + count u16 + sim_time f64
+const BIN_RECORD_BYTES = 23;  // num_id/base_index u32*2 + pos/speed/lat f32*3 + lane/type/flags u8*3
+const BIN_MAGIC = 0x54524146; // "TRAF"
+const BIN_VERSION = 2;
+
+// Decode /api/stateBin and place every vehicle exactly the way applyState()
+// used to from JSON: same placeOnRoad(), same snapPrev/snapCur interpolation
+// buffers. Only the source of (road, pos, lane, lat) changed -- the backend
+// stays road-relative on purpose (see VehicleSnapshotBin's comment) so this
+// function, not the server, remains the one place that knows about roadWOf/US.
+function applyBinaryState(buf) {
+  if (!buf || buf.byteLength < BIN_HEADER_BYTES) return;
+  const dv = new DataView(buf);
+  if (dv.getUint32(0, true) !== BIN_MAGIC) return;
+  if (dv.getUint16(4, true) !== BIN_VERSION) return;  // stale client or server; wait for a reload
+  const count = dv.getUint16(6, true);
+  if (buf.byteLength < BIN_HEADER_BYTES + count * BIN_RECORD_BYTES) return;
 
   const byId = new Map();
-  for (const v of s.vehicles || []) {
-    const p = placeOnRoad(v.road, v.pos, v.lane || 0, v.lat || 0);
+  let off = BIN_HEADER_BYTES;
+  for (let i = 0; i < count; i++, off += BIN_RECORD_BYTES) {
+    const numId = dv.getUint32(off, true);
+    const baseIndex = dv.getUint32(off + 4, true);
+    const pos = dv.getFloat32(off + 8, true);
+    const speed = dv.getFloat32(off + 12, true);
+    const lat = dv.getFloat32(off + 16, true);
+    const lane = dv.getUint8(off + 20);
+    const type = dv.getUint8(off + 21);
+    const flags = dv.getUint8(off + 22);
+
+    const forwardId = baseIndexToRoadId[baseIndex];
+    if (forwardId === undefined) continue;  // map reloaded mid-flight; skip a frame
+    const roadId = (flags & 1) ? forwardId + "_r" : forwardId;
+    const p = placeOnRoad(roadId, pos, lane, lat);
     if (!p) continue;
-    byId.set(v.id, { id: v.id, type: v.type, road: v.road, speed: v.speed || 0,
-                     x: p.x, y: p.y, h: p.h });
+
+    const typeName = BIN_TYPE_NAMES[type] || "car";
+    // Must match spawn_locked's id scheme (canonical type + counter) exactly,
+    // or click-select and route highlighting silently point at the wrong
+    // vehicle -- or none.
+    const id = typeName + numId;
+    byId.set(id, { id, type: typeName, road: roadId, speed, x: p.x, y: p.y, h: p.h });
   }
+
   snapPrev = snapCur;
   snapCur = { t: performance.now(), byId };
 
@@ -770,6 +828,8 @@ function applyState(s) {
   // rather than leave a route glowing under traffic that is no longer there.
   if (routeVehicleId && !byId.has(routeVehicleId)) clearRouteHighlight();
 }
+
+
 
 // Blend the two newest snapshots at (now - interpDelay). Both the output
 // objects and the array are REUSED between frames: at 60 fps across a
@@ -1195,15 +1255,29 @@ function render() {
 }
 
 // ---------------------------------------------------------------------------
-// Simulation polling
+// Simulation polling -- two independent, self-scheduling loops.
+//
+// Vehicle motion used to ride on the same JSON poll as everything else, which
+// meant it could never be fresher than state_json()'s own ~100ms publish
+// cadence (TrafficSimulator::publish_loop). It now has its own binary poll
+// tied to the tick-synced /api/stateBin snapshot (published every tick, 20Hz),
+// while lights/roads/events/log/stats/solver stay on the slower JSON poll --
+// that data doesn't need tick-rate freshness, so there's no reason to fetch
+// and re-parse a bigger JSON payload as often as positions update.
 // ---------------------------------------------------------------------------
-let pollTimer = null;
+let jsonPollTimer = null;
+let binPollTimer = null;
 
-// Self-scheduling rather than setInterval: poll() is async, and an interval
-// would start the next fetch while the previous one is still out, so two
-// replies could land out of order and hand the interpolator a snapshot older
-// than the one it already has.
-async function poll() {
+// state_json()'s own publish cadence is ~100ms and nothing here gates on
+// speed_ (that only scales SIMULATED time per tick, not wall-clock), so a
+// flat interval is enough -- unlike the binary poll below, going faster than
+// the server's own refresh rate would just re-fetch the same bytes.
+const JSON_POLL_MS = 200;
+
+// Self-scheduling rather than setInterval: an interval would start the next
+// fetch while the previous one is still out, so two replies could land out of
+// order and hand the interpolator (or the light/road state) something stale.
+async function pollJson() {
   const s = await loadState();
   if (s) {
     if (!simOnline) {
@@ -1217,18 +1291,39 @@ async function poll() {
     simState = null;
     UI.log("Simulation offline");
   }
-  // Keep the highlighted route in step with the vehicle that owns it.
   if (routeVehicleId) refreshRoute();
   UI.update(simState);
 
-  // A faster simulation covers more ground between two samples, so sample more
-  // often: 150 ms at 1x down to 45 ms at 10x, keeping the distance travelled
-  // per sample roughly fixed. The render delay follows it.
+  if (jsonPollTimer !== null) clearTimeout(jsonPollTimer);
+  jsonPollTimer = setTimeout(pollJson, JSON_POLL_MS);
+}
+
+async function pollBinary() {
+  const buf = await loadBinaryState();
+  if (buf) applyBinaryState(buf);
+
+  // The server publishes a fresh binary snapshot once per SIM TICK -- every
+  // 50ms of wall-clock time, however fast speed_ makes the sim run inside
+  // it -- so polling faster than that can't find fresher bytes; the value is
+  // in bounding the random phase offset between an independent poll timer and
+  // an independent tick timer. Speed still shrinks the interval because a
+  // smaller interpDelay (below) is less perceptible lag when more simulated
+  // distance passes between two samples. Worth re-measuring rather than
+  // trusting this guess long-term (see docs/PLAN-fast-ids-and-streaming.md).
   const spd = Math.max(1, simState ? simState.speed || 1 : 1);
-  pollInterval = Math.max(45, Math.min(150, Math.round(150 / spd)));
-  interpDelay = Math.max(90, pollInterval * 1.4);
-  if (pollTimer !== null) clearTimeout(pollTimer);
-  pollTimer = setTimeout(poll, pollInterval);
+  pollInterval = Math.max(25, Math.min(50, Math.round(50 / spd)));
+  interpDelay = Math.max(35, pollInterval * 1.25);
+  if (binPollTimer !== null) clearTimeout(binPollTimer);
+  binPollTimer = setTimeout(pollBinary, pollInterval);
+}
+
+// Exposed to ui.js as the "poll" hook: after a user action (spawn a vehicle,
+// add a road, flip a light...) both tiers should refresh immediately instead
+// of waiting out their own timer. Callers that don't await it (most of
+// ui.js's hooks.poll?.() call sites) still get an immediate fetch; only the
+// boot sequence needs the result awaited before its first render.
+async function poll() {
+  await Promise.all([pollJson(), pollBinary()]);
 }
 
 function randomNode() {
@@ -1600,7 +1695,8 @@ export const __debug = {
   get interpDelay() { return interpDelay; },
   snapTimes: () => [snapPrev && snapPrev.t, snapCur && snapCur.t],
   stopPolling() {
-    if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+    if (jsonPollTimer !== null) { clearTimeout(jsonPollTimer); jsonPollTimer = null; }
+    if (binPollTimer !== null) { clearTimeout(binPollTimer); binPollTimer = null; }
   },
   // A copy on purpose: the renderer reuses one pooled object per vehicle, so
   // the live array is only valid until the next call. Tests hold on to results.

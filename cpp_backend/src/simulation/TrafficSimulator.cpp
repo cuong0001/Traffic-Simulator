@@ -4,6 +4,7 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <filesystem>
 #include <sstream>
@@ -132,6 +133,11 @@ void TrafficSimulator::tick(double dt) {
     tick_leads_and_physics(dt);
     tick_cleanup_and_spawn(dt);
     tick_statistics(dt);
+
+    // Positions are what actually needs tick-rate freshness; everything else
+    // in state_json() (lights, roads, events, stats) still goes through
+    // publish_loop()'s own, slower cadence.
+    publish_binary_snapshot_locked();
 }
 
 // Phase 1: advance the clock, the signals and the events, then let anyone who
@@ -266,7 +272,13 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     if (fit == graph_->intersections.end() || tit == graph_->intersections.end()) return "";
     if (from == to) return "";
 
-    const std::string id = type + std::to_string(next_id_++);
+    // The id's type prefix must match what type() reports afterward -- the
+    // binary snapshot (encode_binary_snapshot) reconstructs a display id on
+    // the frontend as TYPE_NAMES[type] + num_id, which only works if the
+    // prefix is always one of the four canonical strings. `type` is whatever
+    // the caller passed (e.g. a free-form /api/spawn query param); canonicalize
+    // it the same way create() resolves an unrecognized type to "car".
+    const std::string id = VehicleFactory::canonical_type(type) + std::to_string(next_id_++);
     // The factory hands back a unique_ptr; we take ownership into vehicles_,
     // which is freed by destroy_vehicle_locked() / clear().
     Vehicle* v = VehicleFactory::create(type, id).release();
@@ -574,6 +586,67 @@ void TrafficSimulator::reindex_locked() {
     // aliases whatever already owns that slot in solve_junctions()'s per-node
     // buckets.
     graph_->reindex();
+}
+
+namespace {
+// Must match the frontend's TYPE_NAMES table exactly -- the frontend
+// reconstructs a vehicle's display id as TYPE_NAMES[type] + num_id.
+uint8_t binary_type_code(const std::string& vtype) {
+    if (vtype == "bus") return 1;
+    if (vtype == "emergency") return 2;
+    if (vtype == "motorbike") return 3;
+    return 0;  // car, and any unrecognized type
+}
+}  // namespace
+
+void TrafficSimulator::encode_binary_snapshot(std::vector<uint8_t>& buffer) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    encode_binary_snapshot_locked(buffer);
+}
+
+void TrafficSimulator::encode_binary_snapshot_locked(std::vector<uint8_t>& buffer) {
+    const uint16_t count = static_cast<uint16_t>(vehicles_.size());
+    const std::size_t payload_bytes = sizeof(BinarySnapshotHeader) + count * sizeof(VehicleSnapshotBin);
+    if (buffer.size() < payload_bytes) buffer.resize(payload_bytes);
+
+    BinarySnapshotHeader header;
+    header.magic = 0x54524146; // "TRAF"
+    header.version = 2;
+    header.vehicle_count = count;
+    header.sim_time = sim_time_;
+    std::memcpy(buffer.data(), &header, sizeof(header));
+
+    VehicleSnapshotBin* dest = reinterpret_cast<VehicleSnapshotBin*>(buffer.data() + sizeof(header));
+    for (std::size_t i = 0; i < count; ++i) {
+        const Vehicle* v = vehicles_[i];
+        VehicleSnapshotBin& out = dest[i];
+        out.num_id = v->num_id;
+        out.type = binary_type_code(v->type());
+
+        const Road* r = v->current_road;
+        out.base_index = r ? r->base_index : 0;
+        out.pos = static_cast<float>(v->position_on_road);
+        out.speed = static_cast<float>(v->current_speed);
+        out.lateral_offset = static_cast<float>(v->lateral_offset);
+        out.lane = static_cast<uint8_t>(std::clamp(v->lane, 0, 255));
+
+        uint8_t flags = 0;
+        if (r && r->reverse_twin) flags |= 1;
+        if (v->current_speed < 0.5) flags |= 2;
+        out.flags = flags;
+    }
+}
+
+void TrafficSimulator::publish_binary_snapshot_locked() {
+    auto buf = std::make_shared<std::vector<uint8_t>>();
+    encode_binary_snapshot_locked(*buf);
+    std::lock_guard<std::mutex> lock(bin_snapshot_mtx_);
+    bin_snapshot_ = std::move(buf);
+}
+
+std::shared_ptr<const std::vector<uint8_t>> TrafficSimulator::binary_snapshot() {
+    std::lock_guard<std::mutex> lock(bin_snapshot_mtx_);
+    return bin_snapshot_;
 }
 
 void TrafficSimulator::destroy_vehicle_locked(Vehicle* v) {

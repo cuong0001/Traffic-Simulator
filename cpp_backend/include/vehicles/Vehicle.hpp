@@ -26,6 +26,7 @@ public:
     enum class State { Planning, Moving, WaitingAtLight, Blocked, Arrived };    
 
     std::string id;
+    uint32_t num_id = 0;        // Fast integer ID for zero-copy binary streaming
     Road* current_road; // The road the vehicle is on
     Intersection* destination; // Destination of vehicle
     double position_on_road; // The distance traveled by the vehicle, measured from the start of the road

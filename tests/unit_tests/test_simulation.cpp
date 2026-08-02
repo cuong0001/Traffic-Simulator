@@ -2,6 +2,7 @@
 #include "third_party/doctest/doctest.h"
 
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -856,4 +857,79 @@ TEST_CASE("landing on top of somebody is refused, and not counted") {
 
     REQUIRE(a->rescue_to(ak));         // `a` is now at position 0 of that road
     CHECK_FALSE(b->rescue_to(bm));     // so `b` cannot materialise inside it
+}
+
+// Guards the exact bugs found while wiring /api/stateBin into the frontend
+// (docs/PLAN-fast-ids-and-streaming.md, Phase 3): the type byte used to check
+// for "truck"/"ambulance", which don't exist in this codebase (real types are
+// car/bus/emergency/motorbike), so those two never matched; and num_id used to
+// require the id to start with 'v', which spawn_locked's ids ("car5",
+// "emergency9", ...) never do, so every vehicle fell into a non-reversible
+// hash. Both would have silently broken the frontend's click-select and route
+// highlighting, which reconstruct a vehicle's display id as
+// TYPE_NAMES[type] + num_id.
+TEST_CASE("encode_binary_snapshot round-trips vehicle state") {
+    TrafficSimulator& sim = fresh();
+    const auto ids = node_ids(sim);
+    REQUIRE(ids.size() >= 2);
+
+    auto find = [&](const std::string& id) -> Vehicle* {
+        for (const auto& [rid, road] : sim.graph()->edges) {
+            for (Vehicle* w : road->vehicles) if (w && w->id == id) return w;
+        }
+        return nullptr;
+    };
+
+    // One of each of the four types this codebase actually has, spaced out in
+    // time (as the rescue test above does) so each clears the kerb before the
+    // next needs the same handful of nodes on this tiny map.
+    const std::vector<std::string> types = {"car", "bus", "emergency", "motorbike"};
+    std::vector<std::string> spawned_ids;
+    for (const auto& t : types) {
+        std::string id;
+        for (std::size_t k = 0; k + 1 < ids.size() && id.empty(); ++k) {
+            id = sim.spawn_vehicle(ids[k], ids[k + 1], t);
+        }
+        REQUIRE_FALSE(id.empty());
+        spawned_ids.push_back(id);
+        for (int t2 = 0; t2 < 20; ++t2) sim.tick(0.05);
+    }
+
+    std::vector<uint8_t> buf;
+    sim.encode_binary_snapshot(buf);
+
+    REQUIRE(buf.size() >= sizeof(BinarySnapshotHeader));
+    BinarySnapshotHeader header;
+    std::memcpy(&header, buf.data(), sizeof(header));
+    CHECK(header.magic == 0x54524146u);
+    CHECK(header.version == 2);
+    CHECK(header.vehicle_count == spawned_ids.size());
+    REQUIRE(buf.size() == sizeof(BinarySnapshotHeader) +
+                              static_cast<std::size_t>(header.vehicle_count) * sizeof(VehicleSnapshotBin));
+
+    const auto* records = reinterpret_cast<const VehicleSnapshotBin*>(buf.data() + sizeof(header));
+    static const char* kTypeNames[4] = {"car", "bus", "emergency", "motorbike"};
+
+    for (const std::string& spawned_id : spawned_ids) {
+        // Find it by rebuilding the display id exactly the way the frontend
+        // does, so this test fails the same way a real regression would show
+        // up in the browser.
+        const VehicleSnapshotBin* match = nullptr;
+        for (std::size_t r = 0; r < header.vehicle_count; ++r) {
+            REQUIRE(records[r].type < 4);
+            const std::string rebuilt =
+                std::string(kTypeNames[records[r].type]) + std::to_string(records[r].num_id);
+            if (rebuilt == spawned_id) { match = &records[r]; break; }
+        }
+        REQUIRE(match != nullptr);
+
+        Vehicle* v = find(spawned_id);
+        REQUIRE(v != nullptr);
+        REQUIRE(v->current_road != nullptr);
+        CHECK(v->type() == kTypeNames[match->type]);
+        CHECK(match->base_index == v->current_road->base_index);
+        CHECK(match->pos == doctest::Approx(v->position_on_road));
+        CHECK(match->lane == v->lane);
+        CHECK(((match->flags & 1) != 0) == v->current_road->reverse_twin);
+    }
 }

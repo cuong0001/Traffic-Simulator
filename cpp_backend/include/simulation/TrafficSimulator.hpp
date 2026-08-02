@@ -28,6 +28,40 @@ would change what the second one sees inside the same tick.
 #include <vector>
 #include <unordered_map>
 
+// Road-relative, not world-space: this mirrors the per-vehicle fields
+// state_json() already sends (road/pos/lane/lat/speed/type), just packed as
+// fixed-size binary instead of formatted JSON. The frontend's placeOnRoad()
+// remains the only place that turns (road, pos, lane, lat) into world x/y --
+// it already accounts for per-road width and the map's cosmetic scale factor
+// (roadWOf, US), neither of which the backend knows about. An earlier version
+// of this struct computed world x/y here with hardcoded constants; that
+// silently disagreed with placeOnRoad() on any map where those constants
+// didn't match. See docs/PLAN-fast-ids-and-streaming.md, Phase 3.
+#pragma pack(push, 1)
+struct VehicleSnapshotBin {
+    uint32_t num_id;      // Parsed from the trailing digits of Vehicle::id
+    uint32_t base_index;  // Road::base_index of the vehicle's current road --
+                           // shared by a two-way street's "id"/"id_r" twin;
+                           // bit0 of `flags` says which direction.
+    float pos;            // Vehicle::position_on_road (metres)
+    float speed;          // Vehicle::current_speed (m/s)
+    float lateral_offset; // Vehicle::lateral_offset (metres, in-progress lane change)
+    uint8_t lane;         // Vehicle::lane
+    uint8_t type;         // 0 car, 1 bus, 2 emergency, 3 motorbike
+    uint8_t flags;        // bit0 reverse ("_r") direction, bit1 stopped
+};
+#pragma pack(pop)
+static_assert(sizeof(VehicleSnapshotBin) == 23, "VehicleSnapshotBin layout must be 23 bytes");
+
+#pragma pack(push, 1)
+struct BinarySnapshotHeader {
+    uint32_t magic;         // 0x54524146 ("TRAF")
+    uint16_t version;       // 2: road-relative VehicleSnapshotBin (see above)
+    uint16_t vehicle_count;
+    double sim_time;
+};
+#pragma pack(pop)
+
 #include "simulation/TrafficController.hpp"
 #include "utils/StatisticsManager.hpp"
 
@@ -107,6 +141,22 @@ public:
     double junction_approach() const { return junction_approach_; }
     // Routing strategy used by new vehicles: "astar" | "dijkstra" | "bfs".
     bool set_algorithm(const std::string& name);
+
+    // live snapshot binary streaming. Locks internally and rebuilds the buffer
+    // on the spot -- fine for a direct caller (tests, or a one-off fallback
+    // before the first tick has published anything), but the HTTP path should
+    // use binary_snapshot() below instead of calling this per request.
+    void encode_binary_snapshot(std::vector<uint8_t>& buffer);
+
+    // The published copy of encode_binary_snapshot(), refreshed once per SIM
+    // TICK (not on state_snapshot()'s fixed 100 ms timer) and served to HTTP
+    // threads without taking the simulation mutex. A VehicleSnapshotBin is a
+    // handful of POD field copies -- cheap enough to rebuild every tick,
+    // unlike state_json()'s string formatting -- so this tracks the 20 Hz tick
+    // rate instead of being throttled to publish_loop()'s cadence. That gap
+    // between the two is what made /api/state feel ~50ms stale even after a
+    // faster wire format existed. Null until the first tick has run.
+    std::shared_ptr<const std::vector<uint8_t>> binary_snapshot();
 
     // vehicle operations
     bool remove_vehicle(const std::string& id);
@@ -220,6 +270,16 @@ private:
     std::mutex snapshot_mtx_;
     std::shared_ptr<const std::string> snapshot_;
     std::atomic<bool> publishing_{false};
+
+    // ---- published BINARY snapshot, refreshed from inside tick() ----------
+    // Same shared_ptr-swap trick as the JSON snapshot above, with its own
+    // mutex for the same reason -- but published every tick (see tick()),
+    // not on a timer, because a POD copy is cheap enough to afford that and
+    // vehicle positions are the thing that actually needs tick-rate freshness.
+    void encode_binary_snapshot_locked(std::vector<uint8_t>& buffer);  // mtx_ already held
+    void publish_binary_snapshot_locked();                             // mtx_ already held
+    std::mutex bin_snapshot_mtx_;
+    std::shared_ptr<const std::vector<uint8_t>> bin_snapshot_;
 
     void solve_lane_changes(double sim_time);          // MOBIL
 
