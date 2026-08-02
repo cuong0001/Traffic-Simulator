@@ -240,7 +240,7 @@ private:
     TrafficGraph* graph_ = nullptr;
     StatisticsManager stats_;
     TrafficController controller_;      // owns the events, Subject for vehicles
-    std::vector<Vehicle*> vehicles_;
+    std::vector<std::unique_ptr<Vehicle>> vehicles_;
 
     std::mutex mtx_;
     bool paused_ = false;
@@ -321,7 +321,7 @@ private:
     long rescues_ = 0;
 
     // The following all require mtx_ to be held by the caller.
-    void destroy_vehicle_locked(Vehicle* v);          // detach from road and free
+    void destroy_vehicle_locked(Vehicle* v);          // detach from road/events; caller erases from vehicles_ to free
     bool remove_road_locked(const std::string& id);   // road + its "_r" twin
     void invalidate_routes_locked();                  // ask everyone to replan
     void reindex_locked();                            // refresh the id caches

@@ -48,14 +48,14 @@ TrafficSimulator& TrafficSimulator::instance() {
 TrafficSimulator::~TrafficSimulator() { clear(); }
 
 void TrafficSimulator::clear() {
-    // Detach before deleting. The controller keeps raw IObserver* pointers, so
-    // a vehicle freed while still subscribed leaves a dangling entry that the
-    // next notifyAll() would call into.
-    for (Vehicle* v : vehicles_) {
-        controller_.detach(v);
-        delete v;
+    // Detach before the unique_ptrs go out of scope below. The controller
+    // keeps raw IObserver* pointers, so a vehicle freed while still
+    // subscribed leaves a dangling entry that the next notifyAll() would
+    // call into.
+    for (auto& v : vehicles_) {
+        controller_.detach(v.get());
     }
-    vehicles_.clear();
+    vehicles_.clear();  // unique_ptr destructors free each Vehicle
     controller_.clear();
     controller_.set_graph(nullptr);
     delete graph_;
@@ -166,7 +166,7 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
     // single-tick latency spikes when many vehicles replan.
     int reroutes_this_tick = 0;
     constexpr int kMaxReroutesPerTick = 15;
-    for (Vehicle* v : vehicles_) {
+    for (auto& v : vehicles_) {
         if (reroutes_this_tick >= kMaxReroutesPerTick) break;
         if (!v->can_recompute() || !v->destination) continue;
         if (!v->consume_reroute_flag()) continue;
@@ -191,7 +191,7 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
 
     std::vector<std::pair<Vehicle*, double>> leaders;
     leaders.reserve(vehicles_.size());
-    for (Vehicle* v : vehicles_) leaders.push_back(lead_in_lane(v));
+    for (auto& v : vehicles_) leaders.push_back(lead_in_lane(v.get()));
 
     std::vector<int> waiting_on(vehicles_.size(), -1);
 
@@ -223,14 +223,13 @@ void TrafficSimulator::tick_leads_and_physics(double dt) {
 // Phase 3: retire the vehicles that arrived and top the city back up.
 void TrafficSimulator::tick_cleanup_and_spawn(double dt) {
     for (auto it = vehicles_.begin(); it != vehicles_.end();) {
-        Vehicle* v = *it;
+        Vehicle* v = it->get();
         if (v->has_reached_destination()) {
             double length = 0.0;
             for (Road* r : v->get_route()) length += r->length;
             stats_.recordTripCompleted(v->travel_time(), length, v->type());
             controller_.detach(v);
-            delete v;
-            it = vehicles_.erase(it);
+            it = vehicles_.erase(it);  // unique_ptr destructor frees the Vehicle
         } else {
             ++it;
         }
@@ -279,9 +278,12 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     // the caller passed (e.g. a free-form /api/spawn query param); canonicalize
     // it the same way create() resolves an unrecognized type to "car".
     const std::string id = VehicleFactory::canonical_type(type) + std::to_string(next_id_++);
-    // The factory hands back a unique_ptr; we take ownership into vehicles_,
-    // which is freed by destroy_vehicle_locked() / clear().
-    Vehicle* v = VehicleFactory::create(type, id).release();
+    // Owned locally until the very end: an early "unreachable" or
+    // "no lane" return just lets `owned` go out of scope and free it, rather
+    // than a manual delete on every such path. Only a successful spawn moves
+    // it into vehicles_, which is what owns it from then on.
+    std::unique_ptr<Vehicle> owned = VehicleFactory::create(type, id);
+    Vehicle* v = owned.get();
     v->set_algorithm(algorithm_);
     const auto t0 = std::chrono::steady_clock::now();
     v->request_route(graph_, fit->second.get(), tit->second.get());
@@ -289,7 +291,6 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
                               std::chrono::steady_clock::now() - t0).count();
     stats_.recordRouteComputation(algorithm_, micros, v->last_nodes_explored(), !v->get_route().empty());
     if (v->get_route().empty()) {  // unreachable
-        delete v;
         return "";
     }
     // request_route() already put v on its first road. Pick the best allowed lane
@@ -319,14 +320,13 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
 
         if (best_gap < 0.0) {  // All allowed lanes blocked at entrance
             first->remove_vehicle(v);
-            delete v;
             return "";
         }
 
         v->lane = best_lane;
     }
     controller_.attach(v);  // Observer: v now hears about events
-    vehicles_.push_back(v);
+    vehicles_.push_back(std::move(owned));
     return id;
 }
 
@@ -472,7 +472,7 @@ std::string TrafficSimulator::state_json() {
     // vehicles
     os << "\"vehicles\":[";
     bool first = true;
-    for (Vehicle* v : vehicles_) {
+    for (const auto& v : vehicles_) {
         if (!v->current_road) continue;
         if (!first) os << ",";
         first = false;
@@ -618,7 +618,7 @@ void TrafficSimulator::encode_binary_snapshot_locked(std::vector<uint8_t>& buffe
 
     VehicleSnapshotBin* dest = reinterpret_cast<VehicleSnapshotBin*>(buffer.data() + sizeof(header));
     for (std::size_t i = 0; i < count; ++i) {
-        const Vehicle* v = vehicles_[i];
+        const Vehicle* v = vehicles_[i].get();
         VehicleSnapshotBin& out = dest[i];
         out.num_id = v->num_id;
         out.type = binary_type_code(v->type());
@@ -649,18 +649,20 @@ std::shared_ptr<const std::vector<uint8_t>> TrafficSimulator::binary_snapshot() 
     return bin_snapshot_;
 }
 
+// Detaches a vehicle from its road and the event Subject, but does not free
+// it: vehicles_ owns it via unique_ptr, so the caller frees it by erasing
+// the corresponding entry from vehicles_ right after calling this.
 void TrafficSimulator::destroy_vehicle_locked(Vehicle* v) {
     if (!v) return;
     if (v->current_road) v->current_road->remove_vehicle(v);
     controller_.detach(v);
-    delete v;
 }
 
 void TrafficSimulator::invalidate_routes_locked() {
     // The graph itself changed under their wheels. This is not one of the
     // TrafficNotification kinds (those describe events on an existing network),
     // so ask each vehicle directly instead of inventing a Kind for it.
-    for (Vehicle* v : vehicles_) v->request_reroute();
+    for (auto& v : vehicles_) v->request_reroute();
 }
 
 // Drop a road and its reverse twin, detaching any vehicles on them.
@@ -677,7 +679,7 @@ bool TrafficSimulator::remove_road_locked(const std::string& id) {
         for (auto vit = vehicles_.begin(); vit != vehicles_.end();) {
             if ((*vit)->current_road == road) {
                 (*vit)->current_road = nullptr;   // already dying with the road
-                destroy_vehicle_locked(*vit);
+                destroy_vehicle_locked(vit->get());
                 vit = vehicles_.erase(vit);
             } else {
                 ++vit;
@@ -720,7 +722,7 @@ bool TrafficSimulator::remove_vehicle(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     for (auto it = vehicles_.begin(); it != vehicles_.end(); ++it) {
         if ((*it)->id != id) continue;
-        destroy_vehicle_locked(*it);
+        destroy_vehicle_locked(it->get());
         vehicles_.erase(it);
         return true;
     }
@@ -730,7 +732,7 @@ bool TrafficSimulator::remove_vehicle(const std::string& id) {
 int TrafficSimulator::clear_vehicles() {
     std::lock_guard<std::mutex> lock(mtx_);
     const int n = static_cast<int>(vehicles_.size());
-    for (Vehicle* v : vehicles_) destroy_vehicle_locked(v);
+    for (auto& v : vehicles_) destroy_vehicle_locked(v.get());
     vehicles_.clear();
     return n;
 }
@@ -741,7 +743,7 @@ bool TrafficSimulator::retarget_vehicle(const std::string& id,
     if (!graph_) return false;
     auto dit = graph_->intersections.find(destination);
     if (dit == graph_->intersections.end()) return false;
-    for (Vehicle* v : vehicles_) {
+    for (auto& v : vehicles_) {
         if (v->id != id) continue;
         v->recompute_route(graph_, dit->second.get());
         return !v->get_route().empty();
@@ -753,7 +755,7 @@ bool TrafficSimulator::set_vehicle_algorithm(const std::string& id,
                                              const std::string& algo) {
     if (algo != "astar" && algo != "dijkstra" && algo != "bfs") return false;
     std::lock_guard<std::mutex> lock(mtx_);
-    for (Vehicle* v : vehicles_) {
+    for (auto& v : vehicles_) {
         if (v->id != id) continue;
         v->set_algorithm(algo);
         if (v->destination) v->recompute_route(graph_, v->destination);
@@ -786,7 +788,7 @@ std::string route_ids_json(const Vehicle& v) {
 
 std::string TrafficSimulator::vehicle_detail_json(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx_);
-    for (Vehicle* v : vehicles_) {
+    for (auto& v : vehicles_) {
         if (v->id != id) continue;
         std::ostringstream os;
         os << "{\"id\":" << jstr(v->id)
@@ -923,7 +925,8 @@ std::string TrafficSimulator::split_road_near(double x, double y) {
             // Nothing to stand on -- rather than leave a vehicle pointing at a
             // road that is not there, let it go.
             destroy_vehicle_locked(d.v);
-            vehicles_.erase(std::remove(vehicles_.begin(), vehicles_.end(), d.v),
+            vehicles_.erase(std::remove_if(vehicles_.begin(), vehicles_.end(),
+                                           [&](const std::unique_ptr<Vehicle>& p) { return p.get() == d.v; }),
                             vehicles_.end());
             continue;
         }
@@ -1262,7 +1265,8 @@ Vehicle* TrafficSimulator::follower_in_lane(Vehicle* v, int lane) const {
 
 // M3/M4: MOBIL lane changes
 void TrafficSimulator::solve_lane_changes(double sim_time) {
-    for (Vehicle* v : vehicles_) {
+    for (auto& vp : vehicles_) {
+        Vehicle* v = vp.get();
         Road* road = v->current_road;
         if (!road || road->lanes < 2) continue;
         if (!v->lane_change_ready(sim_time)) continue;
@@ -1370,7 +1374,7 @@ void TrafficSimulator::solve_junctions(
     }
 
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
-        const Vehicle* w = vehicles_[i];
+        const Vehicle* w = vehicles_[i].get();
         Road* r = w->current_road;
         if (!r) continue;
         const double to_end = r->length - w->position_on_road;
@@ -1397,7 +1401,7 @@ void TrafficSimulator::solve_junctions(
 
     // ---- decide, one vehicle at a time ------------------------------------
     for (std::size_t i = 0; i < vehicles_.size(); ++i) {
-        Vehicle* v = vehicles_[i];
+        Vehicle* v = vehicles_[i].get();
         Road* road = v->current_road;
         if (!road) continue;
         Intersection* node = road->target;
@@ -1435,7 +1439,7 @@ void TrafficSimulator::solve_junctions(
                 // and recording it as one would make the cycle search fire on
                 // ordinary traffic.
                 if (vehicles_[occ.vehicle_idx]->current_speed < kStoppedSpeed) {
-                    blocker = vehicles_[occ.vehicle_idx];
+                    blocker = vehicles_[occ.vehicle_idx].get();
                 }
                 break;
             }
@@ -1453,7 +1457,7 @@ void TrafficSimulator::solve_junctions(
                 to_end / std::max(v->current_speed, kZoneMinSpeed) - bonus;
             for (std::size_t j : node_approaching_[nidx]) {
                 if (j == i) continue;
-                const Vehicle* w = vehicles_[j];
+                const Vehicle* w = vehicles_[j].get();
                 if (w->current_speed < kMovingSpeed) continue;  // parked
                 if (!w->current_road) continue;
                 if (w->current_road->base_index == my_base_idx) continue;
@@ -1594,7 +1598,7 @@ void TrafficSimulator::break_cycles(const std::vector<int>& waiting_on) {
     }
 
     for (std::size_t leader : find_gridlock_cycle_leaders(waiting_on, stuck)) {
-        Vehicle* v = vehicles_[leader];
+        Vehicle* v = vehicles_[leader].get();
         if (v->is_forced(sim_time_)) continue;   // already being pushed through
         v->grant_forced_clearance(sim_time_ + kForcedGrant);
         forced_throughs_++;
@@ -1609,7 +1613,7 @@ void TrafficSimulator::break_cycles(const std::vector<int>& waiting_on) {
 
 void TrafficSimulator::solve_gridlock(double sim_time) {
     (void)sim_time;
-    for (Vehicle* v : vehicles_) {
+    for (auto& v : vehicles_) {
         if (v->stuck_time <= kStuckRescue) continue;
         if (v->get_route_index() + 1 >= static_cast<int>(v->get_route().size())) continue;
         // Count only what actually happened. rescue_to() refuses when the slot
