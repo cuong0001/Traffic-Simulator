@@ -167,6 +167,13 @@ export function handleMapClick(x, y, hit, propIndex) {
                 : hit && hit.kind === "road"     ? { kind: "road", x, y }
                                                  : { kind: "free", x, y };
       if (!roadFirst) {
+        // The first point must land on the existing network -- a road cannot
+        // start from nowhere. The second point is free to land on open ground,
+        // which is how a new dead-end street gets drawn.
+        if (end.kind === "free") {
+          toast("Pick a point on a road or junction first");
+          return true;
+        }
         roadFirst = end;
         $("addroad-status").textContent = `First: ${end.kind}. Pick the second point…`;
         return true;
