@@ -86,7 +86,7 @@ double worst_gap(TrafficSimulator& sim) {
                 Vehicle* front = back == vs[a] ? vs[b] : vs[a];
                 worst = std::min(worst, front->position_on_road
                                       - back->position_on_road
-                                      - front->length_meters());
+                                      - 0.5 * (front->length_meters() + back->length_meters()));
             }
         }
     }
@@ -505,4 +505,322 @@ TEST_CASE("a vehicle reports why it is not moving") {
     REQUIRE(v != nullptr);
     // On an empty map with no signals it should simply be driving.
     CHECK(v->state() == Vehicle::State::Moving);
+}
+
+// ===========================================================================
+// M6: how far out a driver starts working out whether to give way
+// ===========================================================================
+namespace {
+
+// A dense grid: 0.00025 degrees is about 28 m, which is what a real
+// OpenStreetMap extract looks like. kTinyMap's blocks are ~222 m, closer to the
+// hand-drawn downtown map the constant 26 m was written for. The whole point of
+// deriving the window from the map is that these two need different answers.
+const char* kDenseMap = R"({
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"@id":"way/1","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.0],[0.00025,0.0],[0.0005,0.0],[0.00075,0.0]]}},
+    {"type":"Feature","properties":{"@id":"way/2","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,-0.00025],[0.00025,-0.00025],[0.0005,-0.00025],[0.00075,-0.00025]]}},
+    {"type":"Feature","properties":{"@id":"way/3","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.0],[0.0,-0.00025]]}},
+    {"type":"Feature","properties":{"@id":"way/4","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.00025,0.0],[0.00025,-0.00025]]}},
+    {"type":"Feature","properties":{"@id":"way/5","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0005,0.0],[0.0005,-0.00025]]}},
+    {"type":"Feature","properties":{"@id":"way/6","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.00075,0.0],[0.00075,-0.00025]]}}
+  ]
+})";
+
+// A roundabout: a four-segment one-way ring tagged junction=roundabout, with
+// two approach roads meeting it. This is the shape OSM actually delivers -- the
+// ring is never one closed way, it is several short ones, so the joins between
+// them look like ordinary crossings unless something says otherwise.
+const char* kRoundaboutMap = R"({
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"@id":"way/10","highway":"residential","junction":"roundabout","lanes":"1"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.00012],[0.00012,0.0]]}},
+    {"type":"Feature","properties":{"@id":"way/11","highway":"residential","junction":"roundabout","lanes":"1"},
+     "geometry":{"type":"LineString","coordinates":[[0.00012,0.0],[0.0,-0.00012]]}},
+    {"type":"Feature","properties":{"@id":"way/12","highway":"residential","junction":"roundabout","lanes":"1"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,-0.00012],[-0.00012,0.0]]}},
+    {"type":"Feature","properties":{"@id":"way/13","highway":"residential","junction":"roundabout","lanes":"1"},
+     "geometry":{"type":"LineString","coordinates":[[-0.00012,0.0],[0.0,0.00012]]}},
+    {"type":"Feature","properties":{"@id":"way/20","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.0012],[0.0,0.00012]]}},
+    {"type":"Feature","properties":{"@id":"way/21","highway":"residential","lanes":"2"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,-0.00012],[0.0,-0.0012]]}}
+  ]
+})";
+
+std::string write_map(const char* text, const char* filename) {
+    const std::filesystem::path p = std::filesystem::temp_directory_path() / filename;
+    std::ofstream out(p);
+    out << text;
+    out.close();
+    return p.string();
+}
+
+}  // namespace
+
+TEST_CASE("the give-way distance comes from the map's own scale") {
+    TrafficSimulator& sim = TrafficSimulator::instance();
+
+    // 222 m blocks: 26 m out is a genuine final approach, so keep the value the
+    // reference uses. Half a block would be 111 m, hence the ceiling.
+    static const std::string tiny = write_map(kTinyMap, "uts_scale_tiny.geojson");
+    sim.load(tiny);
+    CHECK(sim.junction_approach() == doctest::Approx(26.0));
+
+    // 28 m blocks: 26 m is the whole street. A driver that starts negotiating
+    // right of way the instant it turns into a road never gets a free metre,
+    // and on this map that was 51% of the fleet at once.
+    static const std::string dense = write_map(kDenseMap, "uts_scale_dense.geojson");
+    sim.load(dense);
+    CHECK(sim.junction_approach() < 26.0);
+    CHECK(sim.junction_approach() > 6.0);   // still clears the junction box
+
+    SUBCASE("and it can be overridden live, within sane limits") {
+        sim.set_junction_approach(12.0);
+        CHECK(sim.junction_approach() == doctest::Approx(12.0));
+        sim.set_junction_approach(0.0);       // clamped up: below the box is meaningless
+        CHECK(sim.junction_approach() >= 3.0);
+        sim.set_junction_approach(5000.0);    // clamped down
+        CHECK(sim.junction_approach() <= 60.0);
+    }
+
+    SUBCASE("loading a map re-derives it, discarding a hand-set value") {
+        // Deliberate: carrying a 11 m window onto a map with 222 m blocks would
+        // have drivers deciding almost inside the junction, with nothing on
+        // screen to explain it.
+        sim.set_junction_approach(11.0);
+        CHECK(sim.junction_approach() == doctest::Approx(11.0));
+        sim.load(tiny);
+        CHECK(sim.junction_approach() == doctest::Approx(26.0));
+    }
+}
+
+TEST_CASE("a roundabout is not a ring of crossings") {
+    TrafficSimulator& sim = TrafficSimulator::instance();
+    static const std::string path = write_map(kRoundaboutMap, "uts_roundabout.geojson");
+    sim.load(path);
+    sim.set_auto_spawn(false);
+    sim.set_random_events(false);
+    sim.set_paused(false);
+
+    int circulating = 0, ordinary = 0;
+    for (const auto& [id, road] : sim.graph()->edges) {
+        if (road->is_internal) circulating++; else ordinary++;
+    }
+    // The four ring ways survive as circulating roads; the approaches are
+    // two-way, so they contribute their "_r" twins as well.
+    CHECK(circulating >= 4);
+    CHECK(ordinary >= 2);
+
+    SUBCASE("the seams between ring segments are not arbitration points") {
+        // A node with nothing but circulating roads on it is inside the ring:
+        // no stream crosses there, so nobody gives way to anybody. Where an
+        // approach meets the ring, the node stays an ordinary crossing -- that
+        // is what makes entering traffic give way.
+        int inside = 0, entries = 0;
+        for (const auto& [id, node] : sim.graph()->intersections) {
+            bool has_ring = false, has_street = false;
+            for (const auto& [rid, road] : sim.graph()->edges) {
+                if (road->source != node && road->target != node) continue;
+                if (road->is_internal) has_ring = true; else has_street = true;
+            }
+            if (!has_ring) continue;
+            if (has_street) { entries++; CHECK_FALSE(node->is_roundabout); }
+            else            { inside++;  CHECK(node->is_roundabout); }
+        }
+        // Both kinds must exist, or the checks above prove nothing.
+        CHECK(inside > 0);
+        CHECK(entries > 0);
+    }
+
+    SUBCASE("cars going round it never give way to each other") {
+        // The whole complaint, stated as a number. With ONLY circulating
+        // traffic on the map, no vehicle has anything to give way to: every
+        // conflict it could possibly find is another car going round the same
+        // ring. The seams between segments are not crossings at all, and at an
+        // entry node -- which IS a crossing, because an approach meets it --
+        // two circulating cars still have no quarrel with each other.
+        //
+        // So the yield counter must stay at exactly zero. Before roundabouts
+        // were recorded as such, each of those seams arbitrated like an
+        // ordinary junction and the ring gave way to itself all the way round.
+        sim.set_target_vehicles(0);
+
+        // Ring nodes only: no approach traffic, so nothing legitimately yields.
+        std::vector<std::string> ring_nodes;
+        for (const auto& [id, node] : sim.graph()->intersections) {
+            for (const auto& [rid, road] : sim.graph()->edges) {
+                if (!road->is_internal) continue;
+                if (road->source == node || road->target == node) {
+                    ring_nodes.push_back(id);
+                    break;
+                }
+            }
+        }
+        REQUIRE(ring_nodes.size() >= 3);
+
+        // Pack the ring. A handful of cars spread round 190 m of tarmac never
+        // meet at the same node, and a test that never creates the conflict
+        // cannot show the conflict is handled.
+        int spawned = 0;
+        for (int round = 0; round < 8; ++round) {
+            for (std::size_t a = 0; a < ring_nodes.size(); ++a) {
+                for (std::size_t b = 0; b < ring_nodes.size(); ++b) {
+                    if (a == b) continue;
+                    if (!sim.spawn_vehicle(ring_nodes[a], ring_nodes[b], "car").empty()) {
+                        spawned++;
+                    }
+                }
+            }
+            for (int t = 0; t < 12; ++t) sim.tick(0.05);
+        }
+        REQUIRE(spawned >= 8);
+        CHECK(count_vehicles(sim) >= 6);
+
+        for (int i = 0; i < 600; ++i) sim.tick(0.05);
+        const std::string state = sim.state_json();
+        const std::size_t at = state.find("\"yields\":");
+        REQUIRE(at != std::string::npos);
+        const long yields = std::strtol(state.c_str() + at + 9, nullptr, 10);
+        CHECK(yields == 0);
+    }
+
+    SUBCASE("traffic goes round it instead of seizing up") {
+        // Fill the ring and the approaches. If circulating vehicles gave way to
+        // each other at every seam -- which is what happens when the ring is
+        // read as a chain of crossings -- this deadlocks and nothing moves.
+        sim.set_target_vehicles(0);
+        const auto ids = node_ids(sim);
+        int spawned = 0;
+        for (std::size_t a = 0; a < ids.size() && spawned < 12; ++a) {
+            for (std::size_t b = 0; b < ids.size() && spawned < 12; ++b) {
+                if (a == b) continue;
+                if (!sim.spawn_vehicle(ids[a], ids[b], "car").empty()) spawned++;
+            }
+        }
+        REQUIRE(spawned > 0);
+
+        double fastest = 0.0;
+        for (int i = 0; i < 400; ++i) {
+            sim.tick(0.05);
+            for (const auto& [rid, road] : sim.graph()->edges) {
+                for (Vehicle* v : road->vehicles) {
+                    if (v) fastest = std::max(fastest, v->get_current_speed());
+                }
+            }
+        }
+        CHECK(fastest > 1.0);          // something is actually driving
+        CHECK(worst_gap(sim) > -0.5);  // and not by overlapping each other
+    }
+
+    SUBCASE("saving and reloading keeps the roundabout a roundabout") {
+        REQUIRE(sim.save_map("uts_roundabout_saved"));
+        REQUIRE(sim.load_map("uts_roundabout_saved"));
+        int still_circulating = 0;
+        for (const auto& [id, road] : sim.graph()->edges) {
+            if (road->is_internal) still_circulating++;
+        }
+        CHECK(still_circulating >= 4);
+        std::filesystem::remove("data/maps/uts_roundabout_saved.geojson");
+    }
+}
+
+TEST_CASE("a rescue is only counted when it happens") {
+    TrafficSimulator& sim = fresh();
+    sim.set_target_vehicles(0);
+
+    const auto ids = node_ids(sim);
+    const std::string id = sim.spawn_vehicle(ids[0], ids[2], "car");
+    REQUIRE(!id.empty());
+
+    Vehicle* v = nullptr;
+    for (const auto& [rid, road] : sim.graph()->edges) {
+        for (Vehicle* w : road->vehicles) if (w && w->id == id) v = w;
+    }
+    REQUIRE(v != nullptr);
+    REQUIRE(v->get_route().size() >= 2);
+
+    // Jumping to the next road of the route works, and says so.
+    CHECK(v->rescue_to(static_cast<std::size_t>(v->get_route_index()) + 1));
+
+    // Past the end of the route there is nothing to jump to. Before the fix the
+    // caller counted a rescue for this too -- and because a refusal leaves
+    // stuck_time alone on purpose, a permanently wedged vehicle booked one
+    // every single tick: 19212 of them in 9 sim-seconds on small_map.
+    CHECK_FALSE(v->rescue_to(v->get_route().size()));
+    CHECK_FALSE(v->rescue_to(v->get_route().size() + 5));
+}
+
+TEST_CASE("landing on top of somebody is refused, and not counted") {
+    // The refusal that actually mattered. rescue_to() also gives up when the
+    // slot it would land in is occupied, and THAT is the one a wedged vehicle
+    // hits every tick forever -- the route-index checks above fire once and
+    // then the vehicle is finished anyway.
+    //
+    // On a grid, not the 4-node ring: routing is congestion-aware, so two cars
+    // leaving the same corner can go opposite ways round a ring and share no
+    // road at all. A grid gives overlapping routes to work with.
+    TrafficSimulator& sim = TrafficSimulator::instance();
+    static const std::string dense = write_map(kDenseMap, "uts_rescue_dense.geojson");
+    sim.load(dense);
+    sim.set_auto_spawn(false);
+    sim.set_random_events(false);
+    sim.set_paused(false);
+    sim.set_target_vehicles(0);
+
+    const auto ids = node_ids(sim);
+    REQUIRE(ids.size() >= 4);
+
+    auto find = [&](const std::string& id) -> Vehicle* {
+        for (const auto& [rid, road] : sim.graph()->edges) {
+            for (Vehicle* w : road->vehicles) if (w && w->id == id) return w;
+        }
+        return nullptr;
+    };
+
+    // A handful of vehicles, spaced out in time so each one can leave the
+    // start slot before the next arrives.
+    std::vector<Vehicle*> fleet;
+    for (std::size_t k = 0; k + 1 < ids.size() && fleet.size() < 8; ++k) {
+        const std::string id = sim.spawn_vehicle(ids[k], ids[ids.size() - 1 - k], "car");
+        if (!id.empty()) {
+            Vehicle* v = find(id);
+            if (v && v->get_route().size() > 1) fleet.push_back(v);
+        }
+        for (int t = 0; t < 20; ++t) sim.tick(0.05);
+    }
+    REQUIRE(fleet.size() >= 2);
+
+    // Two of them that still have a road in common ahead of them.
+    Vehicle* a = nullptr;
+    Vehicle* b = nullptr;
+    std::size_t ak = 0, bm = 0;
+    for (std::size_t x = 0; x < fleet.size() && !a; ++x) {
+        for (std::size_t y = 0; y < fleet.size() && !a; ++y) {
+            if (x == y) continue;
+            const std::vector<Road*>& ar = fleet[x]->get_route();
+            const std::vector<Road*>& br = fleet[y]->get_route();
+            const std::size_t a0 = static_cast<std::size_t>(std::max(0, fleet[x]->get_route_index())) + 1;
+            const std::size_t b0 = static_cast<std::size_t>(std::max(0, fleet[y]->get_route_index()));
+            for (std::size_t k = a0; k < ar.size() && !a; ++k) {
+                for (std::size_t m = b0; m < br.size(); ++m) {
+                    if (ar[k] != br[m] || !ar[k]) continue;
+                    a = fleet[x]; b = fleet[y]; ak = k; bm = m;
+                    break;
+                }
+            }
+        }
+    }
+    REQUIRE(a != nullptr);   // no shared road: the test would prove nothing
+
+    REQUIRE(a->rescue_to(ak));         // `a` is now at position 0 of that road
+    CHECK_FALSE(b->rescue_to(bm));     // so `b` cannot materialise inside it
 }
