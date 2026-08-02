@@ -113,6 +113,7 @@ public:
     // playback controls
     void set_paused(bool paused);
     void set_speed(double factor);
+    double speed() const { return speed_; }
     void set_auto_spawn(bool on);
     void set_random_events(bool on);
 
