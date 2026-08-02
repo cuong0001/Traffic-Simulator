@@ -102,6 +102,7 @@ public:
     double get_acceleration() const; 
     double get_max_acceleration() const; 
     double get_max_deceleration() const; 
+    std::size_t last_nodes_explored() const; 
 
     int get_lane() const { return lane; }
     double get_lateral_offset() const { return lateral_offset; }

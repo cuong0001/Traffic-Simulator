@@ -1,3 +1,6 @@
 build/
 build_mingw/
 build_release/
+.gitignore
+ref_docs/
+__pycache__/

@@ -123,7 +123,7 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
         v->recompute_route(graph_, v->destination);
         const double micros = std::chrono::duration<double, std::micro>(
                                   std::chrono::steady_clock::now() - t0).count();
-        stats_.recordRouteComputation(v->algorithm(), micros, 0, !v->get_route().empty());
+        stats_.recordRouteComputation(v->algorithm(), micros, v->last_nodes_explored(), !v->get_route().empty());
     }
 
     solve_lane_changes(sim_time_);
@@ -246,7 +246,7 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     v->request_route(graph_, fit->second, tit->second);
     const double micros = std::chrono::duration<double, std::micro>(
                               std::chrono::steady_clock::now() - t0).count();
-    stats_.recordRouteComputation(algorithm_, micros, 0, !v->get_route().empty());
+    stats_.recordRouteComputation(algorithm_, micros, v->last_nodes_explored(), !v->get_route().empty());
     if (v->get_route().empty()) {  // unreachable
         delete v;
         return "";

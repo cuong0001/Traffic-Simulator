@@ -190,6 +190,9 @@ double Vehicle::get_max_speed() const { return max_speed; }
 double Vehicle::get_acceleration() const { return accel; }
 double Vehicle::get_max_acceleration() const { return max_accel; }
 double Vehicle::get_max_deceleration() const { return max_decel; }
+std::size_t Vehicle::last_nodes_explored() const {
+    return router_ ? router_->nodes_explored() : 0;
+}
 
 // ==========================================================================
 // Hooks used by TrafficSimulator

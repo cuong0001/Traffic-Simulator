@@ -12,6 +12,7 @@
 #include "utils/MapLoader.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -47,11 +48,14 @@ int main(int argc, char** argv) {
     std::cout << "  validate  = " << (warning.empty() ? "OK" : warning) << "\n";
 
     // Simulation thread: advance ~20x/second in real time. The speed factor
-    // (set via /api/speed) scales simulated time inside tick().
+    // (set via /api/speed) scales simulated time, but the integration step is
+    // sub-stepped to stay at ~0.05 s regardless of speed -- otherwise x10 makes
+    // a 0.5 s step that lets vehicles tunnel through junction zones.
     std::thread([&sim] {
-        const double dt = 0.05;  // 50 ms per step
+        const double base = 0.05;
         while (true) {
-            sim.tick(dt);
+            const int n = std::max(1, static_cast<int>(std::ceil(sim.speed())));
+            for (int i = 0; i < n; ++i) sim.tick(base * sim.speed() / n);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }).detach();
