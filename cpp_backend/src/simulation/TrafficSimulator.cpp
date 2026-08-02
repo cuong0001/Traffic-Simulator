@@ -117,7 +117,7 @@ double TrafficSimulator::default_junction_approach(const TrafficGraph& graph) {
 
 void TrafficSimulator::set_junction_approach(double metres) {
     std::lock_guard<std::mutex> lock(mtx_);
-    junction_approach_ = std::clamp(metres, 7.0, 60.0);
+    junction_approach_ = std::clamp(metres, 3.0, 60.0);
 }
 
 // ==========================================================================
@@ -156,15 +156,20 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
     // through the Observer and set their reroute flag.
     controller_.update(dt);
 
-    // Replan anyone an event flagged. Done here rather than inside onNotify()
-    // because that fires mid-broadcast, while the route is being iterated.
+    // Replan anyone an event flagged, capped to a maximum per tick to prevent
+    // single-tick latency spikes when many vehicles replan.
+    int reroutes_this_tick = 0;
+    constexpr int kMaxReroutesPerTick = 15;
     for (Vehicle* v : vehicles_) {
-        if (!v->consume_reroute_flag() || !v->destination) continue;
+        if (reroutes_this_tick >= kMaxReroutesPerTick) break;
+        if (!v->can_recompute() || !v->destination) continue;
+        if (!v->consume_reroute_flag()) continue;
         const auto t0 = std::chrono::steady_clock::now();
         v->recompute_route(graph_, v->destination);
         const double micros = std::chrono::duration<double, std::micro>(
                                   std::chrono::steady_clock::now() - t0).count();
-        stats_.recordRouteComputation(v->algorithm(), micros, 0, !v->get_route().empty());
+        stats_.recordRouteComputation(v->algorithm(), micros, v->last_nodes_explored(), !v->get_route().empty());
+        reroutes_this_tick++;
     }
 
     solve_lane_changes(sim_time_);
@@ -278,23 +283,43 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     v->request_route(graph_, fit->second, tit->second);
     const double micros = std::chrono::duration<double, std::micro>(
                               std::chrono::steady_clock::now() - t0).count();
-    stats_.recordRouteComputation(algorithm_, micros, 0, !v->get_route().empty());
+    stats_.recordRouteComputation(algorithm_, micros, v->last_nodes_explored(), !v->get_route().empty());
     if (v->get_route().empty()) {  // unreachable
         delete v;
         return "";
     }
-    // request_route() already put v on its first road, so skip v itself here.
-    // Refuse to stack the new vehicle on one that is still queued at the kerb.
+    // request_route() already put v on its first road. Pick the best allowed lane
+    // with the clearest entrance gap to distribute traffic across available lanes.
     if (Road* first = v->current_road) {
+        const std::vector<int> ok = v->allowed_lanes(first->lanes);
+        int best_lane = v->lane;
+        double best_gap = -1.0;
         const double needed = v->length_meters() + kSpawnClearance;
-        for (Vehicle* o : first->vehicles) {
-            if (o == v || o->lane != v->lane) continue;
-            if (o->position_on_road < needed) {
-                first->remove_vehicle(v);
-                delete v;
-                return "";
+
+        for (int l : ok) {
+            bool slot_ok = true;
+            double min_pos = 1e9;
+            for (Vehicle* o : first->vehicles) {
+                if (o == v || o->lane != l) continue;
+                if (o->position_on_road < needed) {
+                    slot_ok = false;
+                    break;
+                }
+                if (o->position_on_road < min_pos) min_pos = o->position_on_road;
+            }
+            if (slot_ok && min_pos > best_gap) {
+                best_gap = min_pos;
+                best_lane = l;
             }
         }
+
+        if (best_gap < 0.0) {  // All allowed lanes blocked at entrance
+            first->remove_vehicle(v);
+            delete v;
+            return "";
+        }
+
+        v->lane = best_lane;
     }
     controller_.attach(v);  // Observer: v now hears about events
     vehicles_.push_back(v);
@@ -412,10 +437,9 @@ void TrafficSimulator::publish_loop() {
             std::lock_guard<std::mutex> lock(snapshot_mtx_);
             snapshot_ = std::move(fresh);
         }
-        // 20 Hz: faster than the UI polls, so a request never waits for the
-        // next build, and slow enough that publishing costs a few percent of
-        // one core rather than competing with the simulation.
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // 10 Hz: faster than the UI polls (2-4 Hz), reducing mutex lock contention
+        // with the simulation thread while keeping frontend updates fluid.
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
@@ -454,6 +478,7 @@ std::string TrafficSimulator::state_json() {
            << ",\"speed\":" << v->current_speed
            << ",\"lane\":" << v->lane
            << ",\"lat\":" << v->lateral_offset
+           << ",\"recalcs\":" << v->recalculations()
            << ",\"state\":" << static_cast<int>(v->state())
            << ",\"type\":" << jstr(v->type()) << "}";
     }
@@ -1060,7 +1085,7 @@ namespace {
     constexpr double kMobilObstruction = 0.4;      // only change if actually held up
 
     // ---- junction yielding (M6) ---------------------------------------------
-    constexpr double kJunctionZone = 6.0;    // m: conflict radius around the node
+    constexpr double kJunctionZone = 2.0;    // m: conflict radius around the node
     // The distance at which yielding starts is NOT a constant -- it depends on
     // how big the map's blocks are. See TrafficSimulator::junction_approach_
     // and set_junction_approach(); the ceiling below is what the reference uses
@@ -1086,7 +1111,8 @@ namespace {
 
     // Bumper-to-bumper gap between two vehicles on the same road.
     double gap_between(const Vehicle* back, const Vehicle* front) {
-        return front->position_on_road - back->position_on_road - front->length_meters();
+        return front->position_on_road - back->position_on_road -
+               0.5 * (front->length_meters() + back->length_meters());
     }
 }
 
@@ -1172,7 +1198,7 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
     for (Vehicle* v : vehicles_) {
         Road* road = v->current_road;
         if (!road || road->lanes < 2) continue;
-        if (!v->lane_change_ready(sim_time) || v->current_speed < 1.0) continue;
+        if (!v->lane_change_ready(sim_time)) continue;
 
         const std::vector<int> allowed = v->allowed_lanes(road->lanes);
         if (allowed.size() < 2) continue;
@@ -1181,7 +1207,7 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
         const double a_free = Vehicle::idm_accel(v->current_speed,
                                                  v->desired_speed_on(*road), 0.0, 1e9);
         // Not actually held up? Then there is nothing to gain by weaving.
-        if (a_cur >= a_free - kMobilObstruction) continue;
+        if (v->current_speed >= 1.0 && a_cur >= a_free - kMobilObstruction) continue;
 
         int best_lane = v->lane;
         double best_gain = kMobilThreshold;
@@ -1191,6 +1217,18 @@ void TrafficSimulator::solve_lane_changes(double sim_time) {
 
             const double a_new = accel_in_lane(v, lane);
             double gain = a_new - a_cur;
+
+            // Extra incentive for queued/stationary vehicles to escape blocked lanes if target lane is clear ahead
+            if (v->current_speed < 1.0) {
+                double cur_gap = 1e9, target_gap = 1e9;
+                for (Vehicle* o : road->vehicles) {
+                    if (o == v || o->position_on_road <= v->position_on_road) continue;
+                    const double g = gap_between(v, o);
+                    if (o->lane == v->lane && g < cur_gap) cur_gap = g;
+                    if (o->lane == lane && g < target_gap) target_gap = g;
+                }
+                if (target_gap > cur_gap + 3.0) gain += 1.5;
+            }
 
             // Politeness: subtract the disadvantage we would inflict on the
             // vehicle that ends up behind us. politeness 0 ignores it entirely.
@@ -1264,6 +1302,11 @@ void TrafficSimulator::solve_junctions(
     auto both_circulating = [](const Road* a, const Road* b) {
         return a && b && a->is_internal && b->is_internal;
     };
+    // A circulating vehicle never yields to an entering one. The fixed priority
+    // is what makes a roundabout work: the ring always goes, the approach waits.
+    auto circulating_has_priority = [](const Road* mine, const Road* theirs) {
+        return mine && theirs && mine->is_internal && !theirs->is_internal;
+    };
 
     // ---- pre-pass: who is IN each box, and who is approaching it ----------
     // Occupant = actively crossing (moving, within kJunctionZone before the
@@ -1335,6 +1378,7 @@ void TrafficSimulator::solve_junctions(
                 if (j == i) continue;
                 if (base_road(via->id) == my_base) continue;  // same street
                 if (both_circulating(road, via)) continue;    // same roundabout
+                if (circulating_has_priority(road, via)) continue;  // ring beats approach
                 if (via == my_next) continue;   // already on the road I want
                 yield = true;
 
@@ -1370,6 +1414,7 @@ void TrafficSimulator::solve_junctions(
                     if (!w->current_road) continue;
                     if (base_road(w->current_road->id) == my_base) continue;
                     if (both_circulating(road, w->current_road)) continue;
+                    if (circulating_has_priority(road, w->current_road)) continue;  // ring beats approach
                     const double t_w =
                         d / std::max(w->current_speed, kZoneMinSpeed);
                     if (t_w > kZoneHorizon) continue;  // far out in time
@@ -1408,7 +1453,23 @@ void TrafficSimulator::solve_junctions(
             if (leaders[i].second < room_needed && ahead &&
                 ahead->current_speed < kStoppedSpeed) {
                 yield = box_wait = true;
+                blocker = const_cast<Vehicle*>(ahead);
             }
+            // Check downstream target exit road (Yellow Box rule): do not enter if exit is jammed
+            if (!yield && my_next) {
+                const Vehicle* tail_next = my_next->vehicles.empty() ? nullptr : my_next->vehicles.back();
+                if (tail_next && tail_next->position_on_road < (v->length_meters() + 3.0) &&
+                    tail_next->current_speed < kStoppedSpeed) {
+                    yield = box_wait = true;
+                    blocker = const_cast<Vehicle*>(tail_next);
+                }
+            }
+        }
+
+        // Emergency evacuation for vehicles trapped inside/at the junction box for > 6.0s
+        // Grants temporary priority clearance to drive out of the box instead of wedging indefinitely.
+        if (to_end <= kJunctionZone + 4.0 && (v->stuck_time > 6.0 || v->zone_wait() > 6.0)) {
+            v->grant_forced_clearance(sim_time + 3.0);
         }
 
         if (yield) {

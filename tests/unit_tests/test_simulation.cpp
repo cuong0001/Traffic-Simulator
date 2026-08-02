@@ -86,7 +86,7 @@ double worst_gap(TrafficSimulator& sim) {
                 Vehicle* front = back == vs[a] ? vs[b] : vs[a];
                 worst = std::min(worst, front->position_on_road
                                       - back->position_on_road
-                                      - front->length_meters());
+                                      - 0.5 * (front->length_meters() + back->length_meters()));
             }
         }
     }
@@ -587,7 +587,7 @@ TEST_CASE("the give-way distance comes from the map's own scale") {
         sim.set_junction_approach(12.0);
         CHECK(sim.junction_approach() == doctest::Approx(12.0));
         sim.set_junction_approach(0.0);       // clamped up: below the box is meaningless
-        CHECK(sim.junction_approach() >= 7.0);
+        CHECK(sim.junction_approach() >= 3.0);
         sim.set_junction_approach(5000.0);    // clamped down
         CHECK(sim.junction_approach() <= 60.0);
     }

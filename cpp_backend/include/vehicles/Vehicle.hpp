@@ -101,7 +101,8 @@ public:
 
     double get_acceleration() const; 
     double get_max_acceleration() const; 
-    double get_max_deceleration() const; 
+    double get_max_deceleration() const;
+    std::size_t last_nodes_explored() const; 
 
     int get_lane() const { return lane; }
     double get_lateral_offset() const { return lateral_offset; }
@@ -181,6 +182,14 @@ public:
     // and a refusal repeated every tick is not a rescue.
     bool rescue_to(std::size_t new_index);
 
+    // How many times this vehicle's route was recomputed mid-trip
+    int recalculations() const { return recalculations_; }
+
+    bool is_route_dirty() const { return route_dirty_; }
+    bool can_recompute() const { return recompute_cooldown_ <= 0.0; }
+    void mark_route_dirty() { route_dirty_ = true; }
+    void clear_route_dirty() { route_dirty_ = false; }
+
 private:
     static constexpr double kMaxZoneWait = 15.0;  // s of impatience worth tracking
 
@@ -191,6 +200,9 @@ private:
                                           const std::string& target_id) const;
 
     bool needs_reroute_ = false;           // set by onNotify(), read by the simulator
+    bool route_dirty_ = false;             // recomputation is pending
+    double recompute_cooldown_ = 0.0;      // s until next recomputation is allowed
+    int recalculations_ = 0;               // number of times route was recomputed
     std::string algorithm_ = "dijkstra";
     std::unique_ptr<PathFinding> router_;  // the Strategy object, swapped at runtime
     double travel_time_ = 0.0;             // accumulated travelling time (s)
