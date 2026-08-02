@@ -70,7 +70,7 @@ void Dijkstra::init_distances(const TrafficGraph& graph,
 
 void Dijkstra::relax_edge(Intersection* current, Road* road) {
     Intersection* neighbour = road->target;
-    double new_dist = dist[current->name] + road->get_weight();
+    double new_dist = dist[current->name] + road->cost(cost_mode_);
 
     // find() rather than operator[]: an id we have never reached is absent,
     // which is exactly "distance infinity".

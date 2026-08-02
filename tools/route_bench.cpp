@@ -36,14 +36,14 @@ struct Tally {
 // Sum of road weights along a node path; -1 if two consecutive nodes are not adjacent.
 static double path_cost(const vector<Intersection*>& path) {
     double total = 0.0;
-    for (size_t i = 0; i + 1 < path.size(); ++i) {
+    for (std::size_t i = 0; i + 1 < path.size(); ++i) {
         const Road* best = nullptr;
         for (const Road* r : path[i]->outgoing_edges) {
             if (r->target != path[i + 1]) continue;
-            if (!best || r->get_weight() < best->get_weight()) best = r;
+            if (!best || r->cost(CostMode::Time) < best->cost(CostMode::Time)) best = r;
         }
         if (!best) return -1.0;
-        total += best->get_weight();
+        total += best->cost(CostMode::Time);
     }
     return total;
 }
@@ -73,6 +73,9 @@ int main(int argc, char** argv) {
     AStar astar;
     BFS bfs;
     PathFinding* strategies[] = {&bfs, &dijkstra, &astar};
+    // Explicit rather than relying on the default: this table is the safety
+    // net, and the cost column must match what the routers minimise.
+    for (PathFinding* s : strategies) s->set_cost_mode(CostMode::Time);
     Tally tally[] = {{"BFS"}, {"Dijkstra"}, {"A*"}};
 
     int attempted = 0, comparable = 0, cost_match = 0;

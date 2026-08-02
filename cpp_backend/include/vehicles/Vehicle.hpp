@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "core/Road.hpp"
 #include "routing/PathFinding.hpp"
 #include "utils/Observer.hpp"
 
@@ -136,6 +137,7 @@ public:
     // dijkstra. Set per vehicle at runtime, e.g. from the API.
     void set_algorithm(const std::string& name);
     const std::string& algorithm() const { return algorithm_; }
+    void set_cost_mode(CostMode mode);
 
     // --- simulator-driven movement ----------------------------------------
     // Advance by dt with the leader the simulator found for us. `gap` is the

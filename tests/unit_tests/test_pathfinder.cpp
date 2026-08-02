@@ -386,4 +386,34 @@ TEST_SUITE("PathFinding – Unit Tests") {
         }
     }
 
+    TEST_CASE("A* stays optimal under the time cost mode") {
+        // Direct A->B is 200 m at 120 km/h (6.0 s) -- the TIME-optimal route.
+        // The detour A->C->B is 120 m at 30 km/h (14.4 s) -- the
+        // DISTANCE-optimal route. The two modes must pick different answers,
+        // and A* must agree with Dijkstra in both.
+        std::unique_ptr<TrafficGraph> g(new TrafficGraph());
+        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["B"] = new Intersection("B", 60, 0);
+        g->intersections["C"] = new Intersection("C", 30, 0);
+
+        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 120, 12, true, 200.0);
+        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 30, 12, true, 60.0);
+        g->edges["CB"] = new Road("CB", g->intersections["C"], g->intersections["B"], 1, 30, 12, true, 60.0);
+
+        Dijkstra dijk;
+        AStar astar;
+
+        dijk.set_cost_mode(CostMode::Distance);
+        astar.set_cost_mode(CostMode::Distance);
+        CHECK(names_of(dijk.find_path(*g, "A", "B")) == std::vector<std::string>{ "A", "C", "B" });
+        CHECK(names_of(astar.find_path(*g, "A", "B")) == std::vector<std::string>{ "A", "C", "B" });
+
+        dijk.set_cost_mode(CostMode::Time);
+        astar.set_cost_mode(CostMode::Time);
+        auto ids_d = names_of(dijk.find_path(*g, "A", "B"));
+        auto ids_a = names_of(astar.find_path(*g, "A", "B"));
+        CHECK(ids_d == std::vector<std::string>{ "A", "B" });
+        CHECK(ids_a == ids_d);
+    }
+
 } // TEST_SUITE

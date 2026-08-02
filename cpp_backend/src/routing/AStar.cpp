@@ -25,7 +25,14 @@
 double AStar::heuristic(Intersection* a, Intersection* b) {
     double dx = a->x - b->x;
     double dy = a->y - b->y;
-    return std::sqrt(dx * dx + dy * dy);
+    double h = std::sqrt(dx * dx + dy * dy);
+    // For Time mode, the admissible bound is "shortest possible time":
+    // straight-line distance over the fastest speed any road allows. Without
+    // this, h can overestimate and A* stops being optimal. Distance mode
+    // keeps the plain Euclidean distance.
+    if (cost_mode_ == CostMode::Time && max_speed_ms_ > 0.0)
+        h /= max_speed_ms_;
+    return h;
 }
 
 std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
@@ -46,6 +53,16 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
 
     if (start_id == end_id)
         return { graph.intersections.at(start_id) };
+
+    // In Time mode the admissible heuristic is distance / fastest speed on
+    // the map. Recompute the max speed once per query so it stays fresh after
+    // live map edits; a tight no-allocation loop is negligible next to the
+    // search itself.
+    if (cost_mode_ == CostMode::Time) {
+        max_speed_ms_ = 0.0;
+        for (const auto& [id, road] : graph.edges)
+            if (road) max_speed_ms_ = std::max(max_speed_ms_, road->speed_limit_ms());
+    }
 
     init_scores(graph, start_id, end_id);
     Intersection* goal = graph.intersections.at(end_id);
@@ -69,7 +86,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         for (Road* road : current->outgoing_edges) {
             if (road->is_closed) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
-            double tentative_g = g_score[current_name] + road->get_weight();
+            double tentative_g = g_score[current_name] + road->cost(cost_mode_);
 
             // find() rather than operator[]: an id we have never reached is
             // absent from g_score, which is exactly "cost so far infinity".

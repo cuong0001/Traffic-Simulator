@@ -27,6 +27,7 @@ would change what the second one sees inside the same tick.
 #include <vector>
 #include <unordered_map>
 
+#include "core/Road.hpp"
 #include "simulation/TrafficController.hpp"
 #include "utils/StatisticsManager.hpp"
 
@@ -107,6 +108,9 @@ public:
     double junction_approach() const { return junction_approach_; }
     // Routing strategy used by new vehicles: "astar" | "dijkstra" | "bfs".
     bool set_algorithm(const std::string& name);
+    // What routes minimise ("distance" | "time"), applied to existing and
+    // future vehicles.
+    void set_cost_mode(CostMode mode);
 
     // vehicle operations
     bool remove_vehicle(const std::string& id);
@@ -204,6 +208,7 @@ private:
     int target_vehicles_ = 120;     // 0 = unlimited
     double spawn_rate_ = 1.0;       // vehicles per second when auto-spawning
     std::string algorithm_ = "dijkstra";
+    CostMode cost_mode_ = CostMode::Time;
     // Metres. See set_junction_approach(). Re-derived from the map on load.
     double junction_approach_ = 26.0;
 

@@ -27,6 +27,7 @@ private:
     void init_scores(const TrafficGraph& graph, const std::string& start_id,
                      const std::string& end_id);
     double heuristic(Intersection* a, Intersection* b);
+    double max_speed_ms_ = 0.0;   // fastest speed limit on the map, set per query in Time mode
     std::vector<Intersection*> reconstruct_path(const std::string& start_id,
                                          const std::string& end_id);
 };
