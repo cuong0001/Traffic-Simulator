@@ -168,10 +168,10 @@ void TrafficSimulator::tick_events_and_lanes(double dt) {
     constexpr int kMaxReroutesPerTick = 15;
     for (auto& v : vehicles_) {
         if (reroutes_this_tick >= kMaxReroutesPerTick) break;
-        if (!v->can_recompute() || !v->destination) continue;
+        if (!v->can_recompute() || !v->get_destination()) continue;
         if (!v->consume_reroute_flag()) continue;
         const auto t0 = std::chrono::steady_clock::now();
-        v->recompute_route(graph_, v->destination);
+        v->recompute_route(graph_, v->get_destination());
         const double micros = std::chrono::duration<double, std::micro>(
                                   std::chrono::steady_clock::now() - t0).count();
         stats_.recordRouteComputation(v->algorithm(), micros, v->last_nodes_explored(), !v->get_route().empty());
@@ -758,7 +758,7 @@ bool TrafficSimulator::set_vehicle_algorithm(const std::string& id,
     for (auto& v : vehicles_) {
         if (v->id != id) continue;
         v->set_algorithm(algo);
-        if (v->destination) v->recompute_route(graph_, v->destination);
+        if (v->get_destination()) v->recompute_route(graph_, v->get_destination());
         return true;
     }
     return false;
@@ -795,10 +795,10 @@ std::string TrafficSimulator::vehicle_detail_json(const std::string& id) {
            << ",\"type\":" << jstr(v->type())
            << ",\"algorithm\":" << jstr(v->algorithm())
            << ",\"speed\":" << v->current_speed
-           << ",\"max_speed\":" << v->max_speed
+           << ",\"max_speed\":" << v->get_max_speed()
            << ",\"road\":" << jstr(v->current_road ? v->current_road->id : "")
            << ",\"pos\":" << v->position_on_road
-           << ",\"destination\":" << jstr(v->destination ? v->destination->name : "")
+           << ",\"destination\":" << jstr(v->get_destination() ? v->get_destination()->name : "")
            << ",\"route_len\":" << v->get_route().size()
            << ",\"route_index\":" << v->get_route_index()
            << ",\"route\":" << route_ids_json(*v)
@@ -1416,8 +1416,8 @@ void TrafficSimulator::solve_junctions(
 
         const uint32_t my_base_idx = road->base_index;
         const Road* my_next =
-            (v->route_index + 1 < static_cast<int>(v->route.size()))
-                ? v->route[v->route_index + 1]
+            (v->get_route_index() + 1 < static_cast<int>(v->get_route().size()))
+                ? v->get_route()[v->get_route_index() + 1]
                 : nullptr;
         bool yield = false;
         Vehicle* blocker = nullptr;

@@ -28,19 +28,8 @@ public:
     std::string id;
     uint32_t num_id = 0;        // Fast integer ID for zero-copy binary streaming
     Road* current_road; // The road the vehicle is on
-    Intersection* destination; // Destination of vehicle
     double position_on_road; // The distance traveled by the vehicle, measured from the start of the road
     double current_speed; // Current speed of vehicle
-    double max_speed; // Max speed of vehicle
-
-    double accel;       // Current acceleration of vehicle
-    double max_accel;   // Maximum acceleration of vehicle
-    double max_decel;   // Maximum deceleration of vehicle
-
-    std::vector<Road*> route; // List of roads forming the route from the current location to the destination.
-    int route_index; // route[route_index]=current_road;
-    std::vector<std::string> travel_history; // List of road id the vehicle has passed through
-    bool is_reached_destination;
 
     // --- IDM and lane-change state ---
     double idm_factor{1.0};             // per-vehicle speed personality (0.8 .. 1.0)
@@ -91,26 +80,27 @@ public:
     bool has_reached_destination() const;
 
     // Getter
-    std::string get_id() const; 
-    Road* get_current_road() const; 
-    double get_position_on_road() const; 
-    const std::vector<std::string>& get_travel_history() const; 
-    const std::vector<Road*>& get_route() const; 
-    int get_route_index() const; 
-    
-    double get_current_speed() const; 
-    double get_max_speed() const; 
+    std::string get_id() const;
+    Road* get_current_road() const;
+    Intersection* get_destination() const;
+    double get_position_on_road() const;
+    const std::vector<std::string>& get_travel_history() const;
+    const std::vector<Road*>& get_route() const;
+    int get_route_index() const;
 
-    double get_acceleration() const; 
-    double get_max_acceleration() const; 
+    double get_current_speed() const;
+    double get_max_speed() const;
+
+    double get_acceleration() const;
+    double get_max_acceleration() const;
     double get_max_deceleration() const;
-    std::size_t last_nodes_explored() const; 
+    std::size_t last_nodes_explored() const;
 
     int get_lane() const { return lane; }
     double get_lateral_offset() const { return lateral_offset; }
 
     // Setter
-    void set_destination(Intersection* dest) { destination = dest; }
+    void set_destination(Intersection* dest) { destination_ = dest; }
 
     // ======================================================================
     // Hooks used by TrafficSimulator
@@ -200,6 +190,16 @@ private:
     std::vector<Intersection*> run_router(const TrafficGraph& graph,
                                           const std::string& start_id,
                                           const std::string& target_id) const;
+
+    Intersection* destination_;            // where request_route()/recompute_route() are headed
+    double max_speed_;                     // speed cap for this vehicle
+    double accel_;                         // current acceleration
+    double max_accel_;                     // maximum acceleration
+    double max_decel_;                     // maximum deceleration
+    std::vector<Road*> route_;             // roads from the current location to destination_
+    int route_index_;                      // route_[route_index_] == current_road
+    std::vector<std::string> travel_history_;  // road ids this vehicle has passed through
+    bool is_reached_destination_;
 
     bool needs_reroute_ = false;           // set by onNotify(), read by the simulator
     bool route_dirty_ = false;             // recomputation is pending

@@ -132,7 +132,7 @@ TEST_CASE("Junction box does not stall crossing streams when one exit is backed 
     // Crossing traffic from n3 -> n2 should still be able to flow past the junction
     for (const auto& [rid, road] : sim.graph()->edges) {
         for (Vehicle* v : road->vehicles) {
-            if (v && v->destination == n2) {
+            if (v && v->get_destination() == n2) {
                 if (v->position_on_road > 10.0) cross_arrived++;
             }
         }
