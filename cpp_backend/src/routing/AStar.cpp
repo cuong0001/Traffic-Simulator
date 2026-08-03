@@ -95,7 +95,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
                 prev[neighbour->name] = current;
                 node_of[neighbour->name] = neighbour;
                 g_score[neighbour->name] = tentative_g;
-f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
+                f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
                 pq.push({ f_score[neighbour->name], neighbour->name });
             }
         }
@@ -107,7 +107,7 @@ f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
 void AStar::init_scores(const TrafficGraph& graph,
                         const std::string& start_id,
                         const std::string& end_id) {
-// Lazy init: "absent from g_score" already means infinity, so there is no
+    // Lazy init: "absent from g_score" already means infinity, so there is no
     // reason to write 2617 infinities before a search that settles a few
     // hundred nodes.
     Intersection* goal = graph.intersections.at(end_id).get();
