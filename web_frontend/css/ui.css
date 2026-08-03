@@ -389,6 +389,60 @@ select { padding: 6px; }
 }
 @keyframes px-spin { to { transform: rotate(360deg); } }
 
+/* ---- history playback ----------------------------------------------------- */
+/* #history-lock blocks every click to the canvas/menubar/sidebars while
+   scrubbed into the past (playback is look-only) -- it sits above everything
+   except the scrub bar itself, which needs a higher z-index to stay usable. */
+#history-lock {
+  position: absolute;
+  inset: 0;
+  z-index: 1100;
+  cursor: not-allowed;
+  background: rgba(11, 18, 28, 0.15);
+}
+
+#history-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--navy);
+  border: 3px solid #0b121c;
+  box-shadow: 0 0 0 3px #4a5a70, 6px 6px 0 rgba(0, 0, 0, .35);
+  padding: 8px 14px;
+  font-size: 8px;
+  color: var(--ink);
+}
+#history-badge {
+  color: var(--amber);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+#history-slider {
+  width: 360px;
+  accent-color: var(--amber);
+}
+#history-label {
+  min-width: 90px;
+  white-space: nowrap;
+  color: var(--dim);
+}
+#history-bar.active #history-label { color: var(--ink); }
+#history-live-btn {
+  font-family: var(--px-font);
+  font-size: 8px;
+  color: var(--ink);
+  background: #27394f;
+  border: 2px solid #0b121c;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#history-live-btn:hover { background: var(--amber); color: #1a1204; }
+
 /* ---- scrollbars, small screens, reduced motion --------------------------- */
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb { background: #33455c; border: 2px solid var(--navy); }

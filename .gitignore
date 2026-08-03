@@ -1,6 +1,11 @@
 build/
 build_mingw/
 build_release/
+data/history/
 .gitignore
 ref_docs/
 __pycache__/
+docs/
+suggested_code/
+.claude/
+.specify/

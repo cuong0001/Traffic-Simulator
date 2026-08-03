@@ -5,7 +5,7 @@
 // Loads a GeoJSON map, exports web_frontend/map.json for the static viewer,
 // runs the simulation on a background thread, and serves the web UI + REST API
 // (/api/map, /api/state, /api/spawn, /api/event, /api/pause, /api/resume,
-//  /api/speed, /api/auto) over HTTP.
+//  /api/speed, /api/auto, /api/history/range, /api/history/at) over HTTP.
 #include "simulation/TrafficSimulator.hpp"
 #include "server/WebSocketServer.hpp"
 #include "core/Graph.hpp"
@@ -98,6 +98,15 @@ int main(int argc, char** argv) {
             return it == params.end() ? def : it->second;
         };
         if (p == "/api/map") return sim.map_json();
+        if (p == "/api/history/range") return sim.history_range_json();
+        if (p == "/api/history/at") {
+            const std::string agos = get("ago");
+            double ago = 0.0;
+            if (!agos.empty()) {
+                try { ago = std::stod(agos); } catch (const std::exception&) { ago = 0.0; }
+            }
+            return sim.history_state_at_json(ago);
+        }
         if (p == "/api/state") {
             // Lock-free: served from the published snapshot, so a heavy tick
             // can never stall the browser. The direct call is only the cold

@@ -521,8 +521,9 @@ export function init(h) {
   // --- Adjust Simulation ---
   const speed = $("speed-slider");
   speed.addEventListener("input", () => {
-    // reference mapping: slider -1..1 -> 0.2x .. 5x, centre is exactly 1.0x
-    const factor = Math.pow(5, Number(speed.value));
+    // slider -1..1 -> 0.1x .. 10x, centre is exactly 1.0x. Matches the
+    // backend's own clamp in TrafficSimulator::set_speed().
+    const factor = Math.pow(10, Number(speed.value));
     $("speed-val").textContent = `${factor.toFixed(1)}x`;
     Sim.setSpeed(factor);
   });

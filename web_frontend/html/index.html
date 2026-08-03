@@ -403,6 +403,18 @@
   <div id="fpsmeter" class="hidden">-- fps</div>
   <div id="toast" class="hidden"></div>
 
+  <!-- ======= History playback ======= -->
+  <!-- Blocks every click to the canvas, menubar and sidebars while scrubbed
+       into the past -- playback is look-only, per the design. The scrub bar
+       itself sits at a higher z-index so it and "Jump to Live" stay usable. -->
+  <div id="history-lock" class="hidden"></div>
+  <div id="history-bar">
+    <span id="history-badge" class="hidden">VIEWING HISTORY</span>
+    <input id="history-slider" type="range" min="0" max="0" step="1" value="0">
+    <span id="history-label">Live</span>
+    <button id="history-live-btn" type="button" class="hidden">Jump to Live</button>
+  </div>
+
   <!-- Loading / error overlay -->
   <div id="loading">
     <div class="spinner"></div>
