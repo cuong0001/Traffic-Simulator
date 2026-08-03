@@ -45,6 +45,9 @@ See [docs/architecture.md](docs/architecture.md) for the class diagram and a
 longer description of how the pieces fit together, and which design pattern
 each one demonstrates.
 
+See [docs/experiments_report.md](docs/experiments_report.md) for the routing
+benchmark results and conclusions.
+
 ## Building and running
 
 Needs CMake (>= 3.16) and a C++20 compiler. On Windows, Ninja + MinGW-w64;

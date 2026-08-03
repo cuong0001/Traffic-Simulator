@@ -49,7 +49,8 @@ SCENARIOS = [
 METRICS = ["sim_seconds", "completed_trips", "trips_per_sim_min",
            "avg_travel_time_s", "avg_congestion", "route_recomputations",
            "recomputes_per_sim_min", "active_vehicles_end",
-           "avg_nodes_per_recompute", "avg_micros_per_recompute"]
+           "avg_nodes_per_recompute", "avg_micros_per_recompute",
+           "avg_velocity_mps"]
 
 
 def api_get(base, path, params=None, timeout=30):
@@ -78,6 +79,7 @@ def snapshot(state, algo=None):
         "trips": s.get("completedTrips", 0),
         "computations": s.get("routeComputations", 0),
         "avg_travel": s.get("avgTravelTime", 0.0),
+        "avg_route": s.get("avgRouteLength", 0.0),
         "active": state.get("active", 0),
         "congestion": history[-1].get("congestion", 0.0) if history else 0.0,
     }
@@ -87,6 +89,33 @@ def snapshot(state, algo=None):
         snap["algo_avg_micros"] = alg.get("avgMicros", 0.0)
         snap["algo_avg_nodes"] = alg.get("avgNodesExplored", 0.0)
     return snap
+
+
+def _interp_series(series, grid):
+    """Linearly interpolate a [(t, y), ...] series onto a fixed time grid.
+    This aligns repeats by actual elapsed time, not by sample index -- poll
+    timing drifts slightly between repeats (network latency, sim-tick
+    variance), so index-based alignment silently blends together samples
+    from different real moments, which both distorts the x-axis and
+    smooths away genuine fluctuation. Clamps outside the series range."""
+    out = []
+    if not series:
+        return [0.0] * len(grid)
+    for g in grid:
+        if g <= series[0][0]:
+            out.append(series[0][1])
+            continue
+        if g >= series[-1][0]:
+            out.append(series[-1][1])
+            continue
+        for i in range(len(series) - 1):
+            t0, y0 = series[i]
+            t1, y1 = series[i + 1]
+            if t0 <= g <= t1:
+                f = (g - t0) / (t1 - t0) if t1 > t0 else 0.0
+                out.append(y0 + f * (y1 - y0))
+                break
+    return out
 
 
 def warm_up(base, sc, poll):
@@ -121,12 +150,16 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
     start = snapshot(api_get(base, "/api/state"), algo)
     t0 = start["time"]
     samples = []
+    velocity_samples = []
     deadline = time.monotonic() + (sim_seconds / SPEED) * 3 + 30
 
     while True:
         state = api_get(base, "/api/state")
         snap = snapshot(state, algo)
         samples.append(snap["congestion"])
+        vehs = state.get("vehicles", [])
+        mean_spd = sum(v.get("speed", 0) for v in vehs) / len(vehs) if vehs else 0.0
+        velocity_samples.append((snap["time"] - t0, mean_spd))
         if snap["time"] - t0 >= sim_seconds:
             break
         if time.monotonic() > deadline:
@@ -152,6 +185,12 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
     recomputes = end["computations"] - start["computations"]
     sim_mins = (end["time"] - t0) / 60.0
 
+    route0 = start["avg_route"] * start["trips"]
+    route1 = end["avg_route"] * end["trips"]
+    delta_route = route1 - route0
+    delta_time = total1 - total0
+    avg_velocity = delta_route / delta_time if delta_time > 0 else 0.0
+
     return {
         "scenario": sc["key"],
         "algorithm": algo,
@@ -165,6 +204,8 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
         "active_vehicles_end": end["active"],
         "avg_nodes_per_recompute": round(avg_nodes, 1),
         "avg_micros_per_recompute": round(avg_micros, 1),
+        "avg_velocity_mps": round(avg_velocity, 2),
+        "velocity_samples": velocity_samples,
     }
 
 
@@ -191,18 +232,18 @@ def write_csv(raw_rows, run_id, ts_header):
                     "completed_trips", "trips_per_sim_min", "avg_travel_time_s",
                     "avg_congestion", "route_recomputations", "recomputes_per_sim_min",
                     "active_vehicles_end", "avg_nodes_per_recompute",
-                    "avg_micros_per_recompute"])
+                    "avg_micros_per_recompute", "avg_velocity_mps"])
         for r in raw_rows:
             w.writerow([ts_header, r["repeat"], r["scenario"], r["algorithm"],
                         r["sim_seconds"], r["completed_trips"], r["trips_per_sim_min"],
                         r["avg_travel_time_s"], r["avg_congestion"],
                         r["route_recomputations"], r["recomputes_per_sim_min"],
                         r["active_vehicles_end"], r["avg_nodes_per_recompute"],
-                        r["avg_micros_per_recompute"]])
+                        r["avg_micros_per_recompute"], r["avg_velocity_mps"]])
     return path
 
 
-def write_charts(agg_rows, run_id):
+def write_charts(agg_rows, run_id, vel_series=None):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -231,6 +272,46 @@ def write_charts(agg_rows, run_id):
         os.makedirs(f"docs/images/{run_id}", exist_ok=True)
         fig.savefig(f"docs/images/{run_id}/experiments_{stem}.png", dpi=120)
         plt.close(fig)
+
+    # Velocity-over-time line charts (one per scenario)
+    if vel_series:
+        grid = list(range(0, SIM_SECONDS + 1, 10))
+        for sc in SCENARIOS:
+            has_data = any(vel_series.get((sc["key"], a)) for a in ALGORITHMS)
+            if not has_data:
+                continue
+            fig, ax = plt.subplots(figsize=(9, 5))
+            color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+            for i, algo in enumerate(ALGORITHMS):
+                all_s = vel_series.get((sc["key"], algo), [])
+                if not all_s:
+                    continue
+                color = color_cycle[i % len(color_cycle)]
+                grids = [_interp_series(s, grid) for s in all_s]
+
+                # Plot each repeat faintly so real fluctuation stays visible
+                # instead of being averaged away.
+                for g in grids:
+                    ax.plot(grid, g, color=color, alpha=0.3, linewidth=1)
+
+                # Bold median trace (not mean) -- median at each grid point
+                # is still one of the real sampled/interpolated values, so
+                # it doesn't get smoothed the way an average would.
+                if len(grids) > 1:
+                    medians = [sorted(col)[len(col) // 2] for col in zip(*grids)]
+                    ax.plot(grid, medians, color=color, linewidth=2, label=algo)
+                else:
+                    ax.plot(grid, grids[0], color=color, linewidth=2, label=algo)
+
+            ax.set_xlabel("Simulation time (s)")
+            ax.set_ylabel("Mean vehicle speed (m/s)")
+            ax.set_title(f"Network velocity \u2014 {sc['label']}")
+            ax.legend(title="Algorithm")
+            fig.tight_layout()
+            fig.savefig(f"docs/images/{run_id}/experiments_velocity_{sc['key']}.png",
+                        dpi=120)
+            plt.close(fig)
+
     return True
 
 
@@ -240,11 +321,12 @@ def fmt(val, rng, show_range):
     return str(val)
 
 
-def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
+def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode,
+                 vel_series=None):
     show_range = repeats > 1
     table_lines = [
-        "| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp | Vel (m/s) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for sc in SCENARIOS:
         for r in sorted([x for x in agg_rows if x["scenario"] == sc["key"]],
@@ -257,7 +339,8 @@ def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
                 f"{fmt(r['recomputes_per_sim_min'], r['recomputes_per_sim_min_range'], show_range)} | "
                 f"{fmt(r['active_vehicles_end'], r['active_vehicles_end_range'], show_range)} | "
                 f"{fmt(r['avg_nodes_per_recompute'], r['avg_nodes_per_recompute_range'], show_range)} | "
-                f"{fmt(r['avg_micros_per_recompute'], r['avg_micros_per_recompute_range'], show_range)} |")
+                f"{fmt(r['avg_micros_per_recompute'], r['avg_micros_per_recompute_range'], show_range)} | "
+                f"{fmt(r['avg_velocity_mps'], r['avg_velocity_mps_range'], show_range)} |")
     table = "\n".join(table_lines)
 
     charts_section = ""
@@ -265,7 +348,15 @@ def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
         chart_block = "".join(
             f"![{title}](images/{run_id}/experiments_{stem}.png)\n\n"
             for _, title, _, stem in CHARTS)
-        charts_section = f"### Charts\n\n{chart_block}"
+        vel_block = ""
+        if vel_series:
+            vel_imgs = "".join(
+                f"![{sc['label']}](images/{run_id}/experiments_velocity_{sc['key']}.png)\n"
+                for sc in SCENARIOS
+                if any(vel_series.get((sc["key"], a)) for a in ALGORITHMS))
+            if vel_imgs:
+                vel_block = f"### Velocity over time\n\n{vel_imgs}"
+        charts_section = f"### Charts\n\n{chart_block}{vel_block}"
 
     reps_note = f" ({repeats} repeats per combo, mean ± range)" if repeats > 1 else ""
     section = f"""## {ts_header}
@@ -334,22 +425,30 @@ def main():
         row = run_one(base, sc, algo, secs, args.poll_interval, args.cost_mode)
         row["repeat"] = rep
         raw_rows.append(row)
-        print(f"trips/min={row['trips_per_sim_min']}  nodes={row['avg_nodes_per_recompute']}  "
+        print(f"trips/min={row['trips_per_sim_min']}  vel={row['avg_velocity_mps']}m/s  "
+              f"nodes={row['avg_nodes_per_recompute']}  "
               f"micros={row['avg_micros_per_recompute']}")
 
     now = datetime.now()
     run_id = now.strftime("%Y-%m-%d_%H-%M")
     ts_header = now.strftime("%Y-%m-%d %H:%M")
 
+    # Extract velocity time-series before CSV/aggregation (not a scalar metric)
+    vel_series = {}
+    for r in raw_rows:
+        key = (r["scenario"], r["algorithm"])
+        vel_series.setdefault(key, []).append(r.pop("velocity_samples"))
+
     csv_path = write_csv(raw_rows, run_id, ts_header)
     print(f"wrote {csv_path}")
 
     agg_rows = aggregate(raw_rows)
-    charts_ok = write_charts(agg_rows, run_id)
+    charts_ok = write_charts(agg_rows, run_id, vel_series)
     if charts_ok:
-        print("wrote 5 charts in docs/")
+        print(f"wrote {len(CHARTS) + len(SCENARIOS)} charts in docs/")
 
-    write_report(agg_rows, charts_ok, run_id, ts_header, repeats, args.cost_mode)
+    write_report(agg_rows, charts_ok, run_id, ts_header, repeats, args.cost_mode,
+                 vel_series)
     print(f"appended to {REPORT_MD}")
     return 0
 
