@@ -54,6 +54,7 @@ set(BACKEND_SOURCES
     cpp_backend/src/simulation/TrafficController.cpp
     cpp_backend/src/simulation/JunctionArbiter.cpp
     cpp_backend/src/simulation/MapEditor.cpp
+    cpp_backend/src/simulation/HistoryStore.cpp
     cpp_backend/src/simulation/TrafficSimulator.cpp
 )
 
@@ -112,3 +113,7 @@ target_link_libraries(test_gridlock_stress PRIVATE traffic_core)
 #Traffic signal test==================================================================
 add_executable(test_signals_unit tests/unit_tests/test_signals.cpp)
 target_link_libraries(test_signals_unit PRIVATE traffic_core)
+
+#History playback test================================================================
+add_executable(test_history_unit tests/unit_tests/test_history.cpp)
+target_link_libraries(test_history_unit PRIVATE traffic_core)

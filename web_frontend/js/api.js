@@ -50,6 +50,30 @@ export async function loadBinaryState() {
     }
 }
 
+// { empty, oldestAgo, newestAgo, windowSeconds } -- how far back the history
+// scrubber can go right now. Grows over the process's run, up to windowSeconds.
+export async function loadHistoryRange() {
+    try {
+        const res = await fetch("/api/history/range", { cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (_) {
+        return null;
+    }
+}
+
+// A state_json()-shaped snapshot from `ago` seconds before now, or the
+// nearest retained frame if that instant wasn't captured or has aged out.
+export async function loadHistoryAt(ago) {
+    try {
+        const res = await fetch(`/api/history/at?ago=${encodeURIComponent(ago)}`, { cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (_) {
+        return null;
+    }
+}
+
 // Control call. Never throws: a failed control must not break the render loop.
 async function control(path, params = {}) {
     const qs = new URLSearchParams(params).toString();

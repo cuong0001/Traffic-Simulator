@@ -17,7 +17,7 @@
 
 "use strict";
 
-import { loadMap, loadState, loadBinaryState, Sim } from "./api.js";
+import { loadMap, loadState, loadBinaryState, loadHistoryRange, loadHistoryAt, Sim } from "./api.js";
 import { Sprites } from "./sprites.js";
 import * as UI from "./ui.js";
 import { OsmPicker, importArea } from "./osm.js";
@@ -698,6 +698,12 @@ let routeRoadIds = [];            // nodeId -> 0|1|2
 let roadState = {};             // roadId -> { congestion, closed }
 let simOnline = false;
 
+// ---- history playback -------------------------------------------------
+// null = live. A number = seconds ago into the past this client is scrubbed
+// to -- per-client view state; the live simulation never pauses for it.
+let historyAgo = null;
+let historyRange = { empty: true, oldestAgo: 0, newestAgo: 0, windowSeconds: 0 };
+
 // Snapshot interpolation. Vehicles are drawn ~one poll interval in the PAST,
 // linearly blended between the two most recent /api/state samples, so motion is
 // continuous whatever the poll rate or the tick rate. The obvious alternative --
@@ -777,6 +783,27 @@ function applyState(s) {
   }
   roadState = {};
   for (const r of s.roads || []) roadState[r.id] = r;
+}
+
+// applyState() above does NOT move vehicles -- live vehicle rendering reads
+// snapPrev/snapCur, populated only by applyBinaryState() from /api/stateBin.
+// History has no binary snapshot (a JSON vehicles array is enough at a 1/s
+// cadence, see docs/PR-history-playback.md), so this is the JSON-native
+// equivalent of applyBinaryState()'s tail: place each vehicle with the same
+// placeOnRoad() the live path uses, then publish it as BOTH snapPrev and
+// snapCur (same object) so interpolatedVehicles() sees "no previous sample"
+// and snaps straight to the historical position instead of sliding from
+// wherever the live view last was.
+function applyHistoryVehicles(vehicles) {
+  const byId = new Map();
+  for (const v of vehicles || []) {
+    const p = placeOnRoad(v.road, v.pos, v.lane || 0, v.lat || 0);
+    if (!p) continue;
+    byId.set(v.id, { id: v.id, type: v.type, road: v.road, speed: v.speed, x: p.x, y: p.y, h: p.h });
+  }
+  const snap = { t: performance.now(), byId };
+  snapPrev = snap;
+  snapCur = snap;
 }
 
 // Vehicle type codes /api/stateBin uses -- must match
@@ -1330,6 +1357,14 @@ async function pollJson() {
     }
     applyState(s);
     rebuildLiveRoads();
+    // Piggybacks on the live poll's own cadence rather than a separate timer
+    // -- only while at the live edge; a scrubbed-back label is driven by
+    // fetchHistoryFrame() instead and must not be overwritten out from
+    // under it by a live poll that's still landing in the background.
+    if (historyAgo === null) {
+      const label = document.getElementById("history-label");
+      if (label) label.textContent = fmtCalendar(s.calendarTime);
+    }
   } else if (simOnline) {
     simOnline = false;
     simState = null;
@@ -1368,6 +1403,135 @@ async function pollBinary() {
 // boot sequence needs the result awaited before its first render.
 async function poll() {
   await Promise.all([pollJson(), pollBinary()]);
+}
+
+// ---------------------------------------------------------------------------
+// History playback
+//
+// Per-client view state -- scrubbing never touches the live simulation, which
+// keeps ticking for this client's own next live poll and for everyone else.
+// Entering history mode stops this client's live pollers and fetches a single
+// state_json()-shaped frame from /api/history/at; leaving it (back to
+// historyAgo === null) resumes them. Vehicles need applyHistoryVehicles()
+// (above) rather than applyState() alone, since live vehicle rendering
+// normally comes from the separate binary snapshot stream, which history
+// has no equivalent of.
+// ---------------------------------------------------------------------------
+
+// The simulator's OWN clock, not a wall clock: TrafficSimulator::load() sets
+// calendarTime's base to the real time the run started, and it counts
+// forward from there by sim_time_ -- which is itself already speed-scaled --
+// so this runs faster than real life whenever speed_ > 1 and slower when
+// < 1. Format matches what was asked for: "5:00 04/08", "23:34 05/08".
+function fmtCalendar(epochSeconds) {
+  if (!epochSeconds) return "--:-- --/--";
+  const d = new Date(epochSeconds * 1000);
+  const hh = d.getHours();
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  return `${hh}:${mm} ${dd}/${mo}`;
+}
+
+function historyBarEls() {
+  return {
+    bar: document.getElementById("history-bar"),
+    lock: document.getElementById("history-lock"),
+    slider: document.getElementById("history-slider"),
+    label: document.getElementById("history-label"),
+    badge: document.getElementById("history-badge"),
+    liveBtn: document.getElementById("history-live-btn"),
+  };
+}
+
+// The slider's VALUE is "seconds since the oldest retained frame" -- 0 at
+// the left (oldest), slider.max at the right (now) -- so dragging left
+// always means "further into the past," matching how a timeline reads left
+// to right. `ago` (seconds before now) is just slider.max minus that.
+function agoToSliderValue(ago) {
+  const max = Number(document.getElementById("history-slider")?.max || 0);
+  return Math.max(0, max - ago);
+}
+function sliderValueToAgo(value) {
+  const max = Number(document.getElementById("history-slider")?.max || 0);
+  return Math.max(0, max - value);
+}
+
+// Grows the slider's range as more history accumulates (up to windowSeconds),
+// and -- while live -- keeps the handle pinned to the right edge so "now"
+// never lags behind as that edge moves. Cheap and infrequent -- called once
+// at boot and then every 30s, not on the live poll's own faster cadence.
+async function refreshHistoryRange() {
+  const r = await loadHistoryRange();
+  if (!r || r.empty) return;
+  historyRange = r;
+  const { slider } = historyBarEls();
+  if (slider && document.activeElement !== slider) {
+    slider.max = String(Math.max(1, Math.floor(r.oldestAgo)));
+    if (historyAgo === null) slider.value = slider.max;
+  }
+}
+
+async function fetchHistoryFrame(ago) {
+  const s = await loadHistoryAt(ago);
+  if (!s) return;
+  // Dragging the slider fires many of these in quick succession; discard a
+  // reply that a later scrub has already superseded rather than let a slow
+  // response land after a faster, newer one and show the wrong instant.
+  if (historyAgo !== ago) return;
+  applyState(s);              // lights + roads + the "time"/"stats" HUD fields
+  applyHistoryVehicles(s.vehicles);
+  UI.update(simState);
+  const { label } = historyBarEls();
+  if (label) label.textContent = fmtCalendar(s.calendarTime);
+}
+
+// The single entry point the scrub slider and "Jump to Live" both call.
+function setHistoryAgo(ago) {
+  const { bar, lock, badge, liveBtn, slider } = historyBarEls();
+  if (ago === null || ago <= 0) {
+    const wasHistory = historyAgo !== null;
+    historyAgo = null;
+    if (bar) bar.classList.remove("active");
+    if (lock) lock.classList.add("hidden");
+    if (badge) badge.classList.add("hidden");
+    if (liveBtn) liveBtn.classList.add("hidden");
+    if (slider) slider.value = slider.max;  // right edge = now
+    // Resume live polling -- it was stopped on the way into history mode.
+    if (wasHistory) { pollJson(); pollBinary(); }
+    else if (simState) {
+      const { label } = historyBarEls();
+      if (label) label.textContent = fmtCalendar(simState.calendarTime);
+    }
+    return;
+  }
+
+  historyAgo = ago;
+  if (bar) bar.classList.add("active");
+  if (lock) lock.classList.remove("hidden");
+  if (badge) badge.classList.remove("hidden");
+  if (liveBtn) liveBtn.classList.remove("hidden");
+  if (slider) slider.value = String(agoToSliderValue(ago));
+
+  if (jsonPollTimer !== null) { clearTimeout(jsonPollTimer); jsonPollTimer = null; }
+  if (binPollTimer !== null) { clearTimeout(binPollTimer); binPollTimer = null; }
+
+  fetchHistoryFrame(ago);
+}
+
+function initHistoryUI() {
+  const { slider, liveBtn } = historyBarEls();
+  if (slider) {
+    slider.addEventListener("input", () => {
+      const ago = sliderValueToAgo(Number(slider.value));
+      setHistoryAgo(ago <= 0 ? null : ago);
+    });
+  }
+  if (liveBtn) {
+    liveBtn.addEventListener("click", () => setHistoryAgo(null));
+  }
+  refreshHistoryRange();
+  setInterval(refreshHistoryRange, 30000);
 }
 
 function randomNode() {
@@ -1705,6 +1869,7 @@ async function boot() {
       getPropCount: () => props.length,
     });
 
+    initHistoryUI();
     await poll();          // schedules its own next run
     requestAnimationFrame(render);
   } catch (err) {
@@ -1742,6 +1907,12 @@ export const __debug = {
     if (jsonPollTimer !== null) { clearTimeout(jsonPollTimer); jsonPollTimer = null; }
     if (binPollTimer !== null) { clearTimeout(binPollTimer); binPollTimer = null; }
   },
+  get historyAgo() { return historyAgo; },
+  get historyRange() { return historyRange; },
+  get isPolling() { return jsonPollTimer !== null || binPollTimer !== null; },
+  setHistoryAgo,
+  fetchHistoryFrame,
+  refreshHistoryRange,
   // A copy on purpose: the renderer reuses one pooled object per vehicle, so
   // the live array is only valid until the next call. Tests hold on to results.
   drawnVehicles: () => interpolatedVehicles().map((v) => ({ ...v })),

@@ -78,6 +78,9 @@ void TrafficSimulator::load(const std::string& map_path)
 
     stats_ = StatisticsManager();
     sim_time_ = 0.0;
+    sim_clock_base_epoch_ = std::chrono::duration<double>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
     tick_count_ = 0;
     next_id_ = 1;
     spawn_accum_ = 0.0;
@@ -127,7 +130,7 @@ double TrafficSimulator::junction_approach() const {
 }
 
 // ==========================================================================
-// The tick loop, in four phases. See the header for why the order matters.
+// The tick loop, in five phases. See the header for why the order matters.
 // ==========================================================================
 void TrafficSimulator::tick(double dt) {
     std::lock_guard<std::mutex> lock(mtx_);
@@ -138,6 +141,7 @@ void TrafficSimulator::tick(double dt) {
     tick_leads_and_physics(dt);
     tick_cleanup_and_spawn(dt);
     tick_statistics(dt);
+    tick_history_capture(dt);
 
     // Positions are what actually needs tick-rate freshness; everything else
     // in state_json() (lights, roads, events, stats) still goes through
@@ -261,6 +265,93 @@ void TrafficSimulator::tick_statistics(double dt) {
     stats_.pushSample(sim_time_, avg, static_cast<int>(vehicles_.size()));
 }
 
+// Phase 5: persist one frame for the history scrubber, once per REAL second
+// -- deliberately NOT gated on `dt` (which is already scaled by speed_ by the
+// time it reaches here): capturing on simulated time would make total data
+// volume for the same real 24h window vary by up to 20x depending on what
+// speed the map happened to run at, defeating the point of a size-bounded
+// window. See HistoryStore.hpp's own comment for the full reasoning.
+//
+// This walks the same live objects state_json() does, into the shape
+// HistoryStore expects (see HistoryStore.hpp). The two walks are NOT shared
+// code -- state_json() stays untouched to avoid risking its many existing
+// callers/tests for this -- so if a field's meaning ever changes on one side
+// (e.g. a new light attribute), check the other.
+void TrafficSimulator::tick_history_capture(double /*dt*/) {
+    const double now = std::chrono::duration<double>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    if (now - last_history_capture_real_ < 1.0) return;
+    last_history_capture_real_ = now;
+
+    HistoryFrame f;
+    f.real_time = now;
+    f.sim_time = sim_time_;
+    f.calendar_time = sim_clock_base_epoch_ + sim_time_;
+
+    f.vehicles.reserve(vehicles_.size());
+    for (const auto& v : vehicles_) {
+        if (!v->current_road) continue;
+        HistoryVehicleRecord r;
+        r.id = v->id;
+        r.road = v->current_road->id;
+        r.pos = static_cast<float>(v->position_on_road);
+        r.speed = static_cast<float>(v->current_speed);
+        r.lane = v->lane;
+        r.lateral_offset = static_cast<float>(v->lateral_offset);
+        r.recalcs = v->recalculations();
+        r.state = static_cast<int>(v->state());
+        r.type = v->type();
+        f.vehicles.push_back(std::move(r));
+    }
+
+    if (graph_) {
+        for (const auto& [id, road] : graph_->edges) {
+            if (road->signal_group < 0 || !road->target) continue;
+            if (!road->target->is_signalized()) continue;
+            HistoryLightRecord l;
+            l.id = id;
+            l.junction = road->target->name;
+            l.group = road->signal_group;
+            l.stop_from_end = static_cast<float>(road->signal_stop_from_end);
+            l.state = road->target->signal_state_for(road->signal_group, sim_time_);
+            l.has_head = road->has_signal_head;
+            if (l.has_head) {
+                l.hx = static_cast<float>(road->signal_head_x);
+                l.hy = static_cast<float>(road->signal_head_y);
+                l.hux = static_cast<float>(road->signal_head_ux);
+                l.huy = static_cast<float>(road->signal_head_uy);
+            }
+            f.lights.push_back(std::move(l));
+        }
+        for (const auto& [id, road] : graph_->edges) {
+            if (road->get_congestion_level() <= 0.01 && !road->is_closed()) continue;
+            f.roads.push_back({id, static_cast<float>(road->get_congestion_level()),
+                                road->is_closed()});
+        }
+    }
+
+    for (const auto& e : controller_.events()) {
+        f.events.push_back({e->id(), e->type(), e->target(), e->description(), e->remaining()});
+    }
+
+    double total_cong = 0.0;
+    if (graph_) {
+        for (const auto& [id, road] : graph_->edges) {
+            if (road) total_cong += road->get_congestion_level();
+        }
+    }
+    f.stats.avg_congestion = (graph_ && !graph_->edges.empty())
+                                  ? total_cong / static_cast<double>(graph_->edges.size())
+                                  : 0.0;
+    f.stats.active_vehicles = static_cast<int>(vehicles_.size());
+    f.stats.avg_travel_time = stats_.averageTravelTime();
+    f.stats.completed_trips = stats_.completedTrips();
+    f.stats.spawned = next_id_ - 1;
+
+    history_.capture(f);
+}
+
 // spawning (Factory)
 std::string TrafficSimulator::spawn_vehicle(const std::string& from, const std::string& to,
                                             const std::string& type) {
@@ -358,7 +449,7 @@ void TrafficSimulator::set_paused(bool paused) {
 }
 void TrafficSimulator::set_speed(double factor) {
     std::lock_guard<std::mutex> lock(mtx_);
-    speed_ = std::max(0.1, std::min(20.0, factor));
+    speed_ = std::max(0.1, std::min(10.0, factor));
 }
 void TrafficSimulator::set_auto_spawn(bool on) {
     std::lock_guard<std::mutex> lock(mtx_);
@@ -442,9 +533,39 @@ namespace {
 // ---------------------------------------------------------------------------
 void TrafficSimulator::start_publishing() {
     if (publishing_.exchange(true)) return;   // already running
+    // Wipes any playback history a PRIOR run of the simulator left on disk
+    // -- once per process, here, since this is already the guarded "run
+    // exactly once at boot" entry point and adding a second one just for
+    // this would be one more thing main() has to remember to call in the
+    // right order.
+    history_.reset();
     // Detached, like the tick thread in main(): the simulator is a singleton
     // that lives as long as the process, so there is no shutdown to join at.
     std::thread(&TrafficSimulator::publish_loop, this).detach();
+}
+
+// ---- history playback -----------------------------------------------------
+std::string TrafficSimulator::history_range_json() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    const HistoryStore::Range r = history_.range();
+    std::ostringstream os;
+    os << "{\"empty\":" << (r.empty ? "true" : "false")
+       << ",\"oldestAgo\":" << r.oldest_ago
+       << ",\"newestAgo\":" << r.newest_ago
+       << ",\"windowSeconds\":" << r.window_seconds << "}";
+    return os.str();
+}
+
+std::string TrafficSimulator::history_state_at_json(double seconds_ago) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    auto frame = history_.at(seconds_ago);
+    if (!frame) {
+        return "{\"empty\":true,\"vehicles\":[],\"lights\":[],\"roads\":[],\"events\":[],"
+               "\"active\":0,\"spawned\":0,"
+               "\"stats\":{\"avgCongestion\":0,\"activeVehicles\":0,\"avgTravelTime\":0,"
+               "\"completedTrips\":0}}";
+    }
+    return HistoryStore::to_state_json(*frame);
 }
 
 void TrafficSimulator::publish_loop() {
@@ -465,11 +586,22 @@ std::shared_ptr<const std::string> TrafficSimulator::state_snapshot() {
     return snapshot_;
 }
 
+// tick_history_capture() (below tick_statistics()) walks the same vehicles_/
+// graph_/controller_ into a HistoryFrame, on its own 1s-real-time cadence.
+// The two extraction walks are separate code, not shared -- this one has too
+// many existing callers/tests to risk refactoring for that -- so a field
+// meaning changing on one side (e.g. a new light attribute) needs checking
+// against the other by hand.
 std::string TrafficSimulator::state_json() {
     std::lock_guard<std::mutex> lock(mtx_);
     std::ostringstream os;
     os << "{";
     os << "\"time\":" << sim_time_ << ",";
+    // Cast to an integer before insertion: ostringstream defaults to 6
+    // significant digits for a double, which for a ~1.7-billion-second epoch
+    // value throws away everything below ~10000s resolution -- the clock
+    // would read up to ~3h wrong. Whole seconds are all a clock display needs.
+    os << "\"calendarTime\":" << static_cast<long long>(sim_clock_base_epoch_ + sim_time_) << ",";
     os << "\"paused\":" << (paused_ ? "true" : "false") << ",";
     os << "\"speed\":" << speed_ << ",";
     // The control panel shows these. Without them in the state the inputs can

@@ -5,11 +5,12 @@ TrafficSimulator.hpp
 - The simulation engine. Singleton: exactly one world, shared by the 
 tick thread and the HTTP server thread, so every public method locks.
  
-- The tick is split into four phases that always run in this order:
+- The tick is split into five phases that always run in this order:
     1. events and lane changes   advance signals and events, run MOBIL
     2. leads and physics         resolve every leader, then move everyone
     3. cleanup and spawn         reap arrivals, rescue deadlocks, top up
     4. statistics                sample the network for the charts
+    5. history capture           persist one frame every REAL second, for playback
 
 - The order matters. A Vehicle can only see its own road, so all the decisions
 that need a global view are made in phase 1 and 2 *before* anything moves,
@@ -64,6 +65,7 @@ struct BinarySnapshotHeader {
 };
 #pragma pack(pop)
 
+#include "simulation/HistoryStore.hpp"
 #include "simulation/JunctionArbiter.hpp"
 #include "simulation/MapEditor.hpp"
 #include "simulation/TrafficController.hpp"
@@ -200,9 +202,16 @@ public:
     // out the result. Null until the first snapshot has been built.
     std::shared_ptr<const std::string> state_snapshot();
 
-    // Start the publisher thread. Called once from main().
+    // Start the publisher thread. Called once from main(). Also loads the
+    // history store's on-disk index -- both are "once at process boot" work,
+    // and reusing this single already-guarded entry point avoids adding a
+    // second one just for that.
     void start_publishing();
     std::string map_json();    // GET /api/map
+
+    // ---- history playback (see HistoryStore.hpp) ---------------------------
+    std::string history_range_json();               // GET /api/history/range
+    std::string history_state_at_json(double seconds_ago);  // GET /api/history/at
 
 private:
     TrafficSimulator() = default;
@@ -217,6 +226,7 @@ private:
     void tick_leads_and_physics(double dt);
     void tick_cleanup_and_spawn(double dt);
     void tick_statistics(double dt);
+    void tick_history_capture(double dt);
 
     void auto_spawn(double dt);  // keep the city busy with random trips
     std::string random_node() const;
@@ -247,9 +257,21 @@ private:
     double sim_time_ = 0.0;
     long tick_count_ = 0;
 
+    // Real epoch seconds when load() last ran -- the anchor the history
+    // scrubber's calendar clock (calendarTime = this + sim_time_) counts
+    // forward from. See HistoryFrame::calendar_time for why it deliberately
+    // is NOT just "now": it has to run at sim speed, not real speed.
+    double sim_clock_base_epoch_ = 0.0;
+
     bool auto_spawn_ = true;
     double spawn_accum_ = 0.0;      // fractional vehicles owed by spawn_rate_
     double sample_timer_ = 0.0;     // seconds since the last statistics sample
+
+    // ---- history playback ---------------------------------------------------
+    // Rolling 24h window, indexed by REAL capture time rather than sim_time_
+    // (which resets on every load()) -- see HistoryStore.hpp for why.
+    HistoryStore history_{"data/history", 86400.0};
+    double last_history_capture_real_ = 0.0;  // epoch seconds; 0 forces an immediate first capture
     int target_vehicles_ = 120;     // 0 = unlimited
     double spawn_rate_ = 1.0;       // vehicles per second when auto-spawning
     std::string algorithm_ = "dijkstra";
