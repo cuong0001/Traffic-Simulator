@@ -54,8 +54,12 @@ int main(int argc, char** argv) {
     std::thread([&sim] {
         const double base = 0.05;
         while (true) {
+            // tick() already scales its dt by sim.speed() internally, so only
+            // the sub-step count depends on speed here -- passing base/n
+            // (not base * speed / n) avoids applying speed twice, which was
+            // making e.g. 5x run at 5^2 = 25x actual simulated time.
             const int n = std::max(1, static_cast<int>(std::ceil(sim.speed())));
-            for (int i = 0; i < n; ++i) sim.tick(base * sim.speed() / n);
+            for (int i = 0; i < n; ++i) sim.tick(base / n);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }).detach();
