@@ -120,18 +120,20 @@ cannot represent at all. A continuous lateral-position model (real sub-lane
 offsets, overtaking within a lane) is the natural next step, and would also
 let the four vehicle types differ in width rather than only in length.
 
-**Vehicles still visibly overlap on screen, and mostly for a rendering
-reason rather than a physics one.** Measuring the drawn sprites as oriented
-boxes at 600 vehicles found overlaps constantly, up to 1.8m of penetration
-— which is exactly one vehicle width, i.e. fully sideways-overlapping,
-not nose-to-tail. The cause is a scale mismatch: `US` (the cosmetic
-road-width factor) clamps to **0.2** on a dense OSM import, so lanes are
-drawn at a fifth of their true width, while vehicle sprites scale by `VS`,
-which floors at **0.35**. Sprites are therefore drawn wider than the lane
-that contains them, and neighbouring lanes visually collide even when the
-simulation's own spacing is correct. Making `VS` track `US` (or drawing
-lanes at true width) is the fix, and it is a renderer change — the physics
-is not what is wrong here.
+**Vehicles still visibly overlap at junctions.** Measuring the drawn
+sprites as oriented boxes at 600 vehicles finds overlaps throughout a run,
+worst penetration around 1.7 world units. It is not a sprite-scaling
+problem — a drawn car is 1.18 world units wide against a 1.5-unit lane, so
+sprites do fit inside their own lane, and same-lane longitudinal spacing is
+separately enforced (below). The overlaps are overwhelmingly between
+vehicles on *different roads*: two approaches meeting inside a junction
+box. `JunctionArbiter` decides right of way and refuses to let a vehicle
+enter a junction whose exit is blocked, but it arbitrates on arrival
+*timing* rather than on the physical area a vehicle sweeps through the
+junction, so two vehicles crossing on paths that intersect can be inside
+the box at the same instant. Fixing it properly means giving the junction a
+real occupancy model — reserving the swept area rather than the node — and
+is a genuine piece of work, not a constant to retune.
 
 *Longitudinal* spacing within a lane is separately enforced, at all three
 points a vehicle's position can change discontinuously: same-lane following
