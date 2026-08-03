@@ -110,3 +110,47 @@ relative path.) Three tiers, under `tests/`:
 
 `CMakeLists.txt` registers one executable per test file; `cmake --build
 build` builds all of them alongside the simulator.
+
+## Limitations and future work
+
+**Traffic still collides and jams, despite real effort to prevent it.**
+Vehicles move on discrete lanes (`kLaneWidth = 3.5m`), not a continuous 2D
+surface — real traffic, motorbikes especially, weaves and squeezes through
+gaps a lane-locked model can't represent at all. Within a lane, following
+distance and road handovers are hard-checked against real overlap (see
+`entry_slot_free()` and `gap_between()` in `JunctionArbiter.cpp`) and
+verified collision-free at 700+ vehicles this project. **Lane changes are
+the weak point**: `solve_lane_changes()`'s MOBIL model only checks whether
+the vehicle already behind the target slot would have to brake harder than
+a comfort threshold (`kMobilSafeDecel`) — there's no equivalent of
+`entry_slot_free()`'s hard "is this slot actually clear" check gating
+`set_lane()` itself, so two vehicles evaluating a change in the same tick
+can still end up visually overlapping for a moment — confirmed live at 600
+vehicles on a real OSM import: sampling `/api/state` for 90s caught 99 such
+overlaps mid-lane-change, worst one 4.3m deep (nearly a full car length).
+Deadlocks are handled
+the same way: detected and broken (`solve_gridlock()`, `break_cycles()`,
+`rescue_to()` teleporting a stuck vehicle past the jam) rather than
+prevented outright — the existence of dedicated relief machinery is itself
+the honest signal that the underlying right-of-way model doesn't guarantee
+deadlock-free traffic on its own, only recovers from it. A continuous
+lateral-position model (real sub-lane offsets instead of a fixed lane
+index) and a hard pre-commit check on lane changes are the natural next
+steps for both.
+
+**The simulation doesn't scale to an arbitrarily large city or fleet.**
+The whole tick loop runs on one background thread — physics, routing and
+(now) history capture for every vehicle, every tick, on a single core, with
+no parallelism across vehicles or map regions. Two costs grow with scale in
+particular: routing (`Dijkstra`/`BFS` explore ~1300-1400 nodes per
+recompute on this project's own OSM extract, `A*` ~500-600 — see
+[docs/experiments_report.md](docs/experiments_report.md) — and every
+reroute pays that cost again), and playback history, which captures every
+vehicle's full state once per real second regardless of fleet size (road
+congestion is delta-encoded; vehicles currently are not). Comfortable in
+testing up to a few hundred vehicles on a real OSM-imported district; a
+whole-city import with thousands of concurrent vehicles would need
+sharding the tick loop across threads/regions, delta-encoding vehicles the
+way roads already are in history capture, and likely a coarser routing
+strategy (contraction hierarchies or similar) in place of plain
+Dijkstra/A*/BFS over the full graph.
