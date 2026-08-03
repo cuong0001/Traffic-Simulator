@@ -4,7 +4,9 @@ This project is a part of the CSC10003 - Object-Oriented Programming course at
 VNUHCM - University of Science. It simulates urban traffic in real life: a
 C++ backend runs a graph-based road network with routing, moving vehicles,
 traffic lights and dynamic events; a browser frontend polls it and draws the
-city live.
+city live. Real cities can be imported straight from OpenStreetMap, complete
+with their own traffic signals, and the last 24h of simulated traffic can be
+scrubbed back through at any time without pausing the live simulation.
 
 ## What's here
 
@@ -37,9 +39,16 @@ data/maps/       GeoJSON road networks (small_map.geojson is the default).
 tests/           unit_tests/, edge_cases/, stress_tests/ -- see "Testing"
                  below.
 
-docs/            Working notes and plan documents (gitignored; not part of
-                 the graded deliverable, kept locally for the team).
+docs/            Mostly working notes and PR/plan documents, local to
+                 whoever wrote them and not tracked in git -- except a
+                 handful of tracked deliverables: architecture.md,
+                 experiments.md/experiments_report.md, and tutorial.md
+                 (see below).
 ```
+
+See [docs/tutorial.md](docs/tutorial.md) for a walkthrough of the running
+app: every menu, the live map editing tools, incidents, importing a city
+from OpenStreetMap, and scrubbing back through traffic history.
 
 See [docs/architecture.md](docs/architecture.md) for the class diagram and a
 longer description of how the pieces fit together, and which design pattern
@@ -75,10 +84,11 @@ default to `data/maps/small_map.geojson` and `8080`.
 Everything the frontend does goes through `GET`/`POST` endpoints under
 `/api/...` — map data, live simulation state (JSON and a compact binary
 form), playback control (pause/resume/speed), spawning and removing
-vehicles, triggering traffic events, and live map editing (add/remove a
-road, junction or building; save/load the whole map). `main.cpp` is the
-single place that lists them; `web_frontend/js/api.js` is the client-side
-wrapper around the same list.
+vehicles, triggering traffic events, live map editing (add/remove a
+road, junction or building; save/load the whole map), and querying the
+last 24h of traffic history for playback (`/api/history/range`,
+`/api/history/at`). `main.cpp` is the single place that lists them;
+`web_frontend/js/api.js` is the client-side wrapper around the same list.
 
 ## Testing
 
@@ -92,7 +102,7 @@ relative path.) Three tiers, under `tests/`:
 
 - **`unit_tests/`** — one executable per subsystem (`test_pathfinder`,
   `test_vehicle`, `test_maploader`, `test_simulation`, `test_signals`,
-  `test_trafficevent`, `test_statistics`, plus a dedicated
+  `test_trafficevent`, `test_statistics`, `test_history`, plus a dedicated
   `test_gridlock_stress` for four-way unsignalized junctions).
 - **`edge_cases/`** — invalid map files, disconnected graphs, unreachable
   destinations, empty graphs.
