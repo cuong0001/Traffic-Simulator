@@ -14,6 +14,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <queue>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -211,6 +212,11 @@ constexpr double kMetersPerDegLon = 111320.0;
 constexpr double kOriginMargin = 80.0;      // world margin around the map
 constexpr double kSimplifyTolM = 3.0;       // Douglas-Peucker tolerance (meters)
 constexpr double kMetersPerVehicle = 20.0;  // jam spacing -> capacity
+// How far an OSM traffic_signals node may sit from the junction it controls.
+// OSM puts one on each approach, back at the stop line, so an exact match to
+// the junction almost never happens. Wide enough for a multi-lane approach,
+// short enough not to reach the next intersection on a ~27 m city block.
+constexpr double kSignalSnapM = 25.0;
 
 struct Vec2 { double x = 0.0, y = 0.0; };
 
@@ -506,6 +512,12 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
             std::vector<bool> keep(pts.size(), false);
             keep.front() = keep.back() = true;
             simplify_keep(pts, 0, pts.size() - 1, kSimplifyTolM, keep);
+            // A traffic_signals vertex has to survive simplification: it is the
+            // only anchor saying where the light belongs, and the walk below
+            // starts from it. Dropping it as a "gentle bend" loses the light.
+            for (std::size_t k = 0; k < pts.size(); ++k) {
+                if (signal_verts.count(w.verts[seg_start + k])) keep[k] = true;
+            }
 
             std::vector<std::size_t> chain;  // pool indices of kept vertices
             for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -639,28 +651,164 @@ void load_osm(TrafficGraph& graph, const std::vector<const json*>& road_features
         throw MapLoadError("Road network in " + source + " is empty after pruning");
     }
 
-    // ---- signalize surviving junctions at/near a traffic_signals vertex ----
-    int signalized = 0, skipped = 0;
+    // ---- signalize junctions at/near a traffic_signals vertex --------------
+    // OSM tags highway=traffic_signals on the APPROACH road a few metres before
+    // the intersection -- one node per arm -- not on the intersection node
+    // itself. Measured on a Ho Chi Minh City extract: of 223 signal nodes only
+    // 18 landed exactly on a junction; 205 landed mid-way, where they become
+    // "waypoint" nodes that assign_signal_groups() rejects outright. Demanding
+    // an exact hit therefore threw away ~92% of the city's real lights.
+    //
+    // Each signal governs the arm it STANDS ON, and OSM places it on that way
+    // deliberately to say so. Walk the road network out from the signal to the
+    // first junction ahead and light that one, keeping the road actually walked
+    // as the arm. Straight-line distance is not enough: on a dual carriageway or
+    // in a dense junction cluster the nearest node by air can belong to a
+    // different street entirely.
+    int signalized = 0, unmatched = 0, refused = 0;
     for (std::size_t v : signal_verts) {
-        auto it = node_id_of.find(v);
-        if (it == node_id_of.end()) continue;
-        auto nit = graph.intersections.find(it->second);
-        if (nit == graph.intersections.end()) continue;   // pruned away
-        Intersection* node = nit->second.get();
-        if (node->is_signalized()) continue;
-        // A traffic_signals point in OSM is a GUESS about this junction, so it
-        // has to earn its light: signalize() clusters the approaches into two
-        // opposing phase groups and refuses anything with nothing to
-        // arbitrate. Mid-street signals in OSM are usually pedestrian
-        // crossings, and stopping a straight street for itself is pure loss.
-        if (graph.signalize(node->name)) ++signalized;
-        else ++skipped;
+        auto vit = node_id_of.find(v);
+        if (vit == node_id_of.end()) { ++unmatched; continue; }   // dropped
+        auto sit = graph.intersections.find(vit->second);
+        if (sit == graph.intersections.end()) { ++unmatched; continue; }  // pruned
+        Intersection* start_node = sit->second.get();
+
+        // Dijkstra-lite, expanding through waypoints ONLY: a junction ends the
+        // walk, since whatever lies past it is a different crossing. The parent
+        // links let us recover the road the signal actually sits on, rather
+        // than guessing which of the junction's arms is nearest.
+        Intersection* best = nullptr;
+        std::unordered_map<Intersection*, double> seen_d{{start_node, 0.0}};
+        std::unordered_map<Intersection*, Road*> parent_road;
+        std::unordered_map<Intersection*, Intersection*> parent_node;
+        std::priority_queue<std::pair<double, Intersection*>,
+                            std::vector<std::pair<double, Intersection*>>,
+                            std::greater<>> frontier;
+        frontier.emplace(0.0, start_node);
+        while (!frontier.empty()) {
+            auto [dist, node] = frontier.top();
+            frontier.pop();
+            if (dist > seen_d[node]) continue;
+            if (node != start_node && node->zone != "waypoint" && !node->is_roundabout) {
+                best = node;
+                break;
+            }
+            for (const std::vector<Road*>* side :
+                     {&node->outgoing_edges, &node->incoming_edges}) {
+                for (Road* r : *side) {
+                    Intersection* nxt = (r->source == node) ? r->target : r->source;
+                    if (!nxt) continue;
+                    const double nd = dist + r->length;
+                    if (nd > kSignalSnapM) continue;
+                    auto [it, fresh] = seen_d.emplace(nxt, nd);
+                    if (!fresh && nd >= it->second) continue;
+                    it->second = nd;
+                    parent_road[nxt] = r;
+                    parent_node[nxt] = node;
+                    frontier.emplace(nd, nxt);
+                }
+            }
+        }
+        // The signal itself may already sit on a junction.
+        if (!best && start_node->zone != "waypoint" && !start_node->is_roundabout) {
+            best = start_node;
+        }
+        if (!best) { ++unmatched; continue; }       // genuine mid-block crossing
+
+        // A traffic_signals point in OSM is still a GUESS about this junction,
+        // so it has to earn its light: signalize() clusters the approaches into
+        // two opposing phase groups and refuses anything with nothing to
+        // arbitrate -- stopping a straight street for itself is pure loss.
+        if (!best->is_signalized()) {
+            if (!graph.signalize(best->name)) { ++refused; continue; }
+            ++signalized;
+        }
+
+        // The arm is the road walked INTO the junction, so it is always one the
+        // signal genuinely lies on. Picking the junction's nearest arm instead
+        // attached heads to perpendicular or opposing roads, which drew stop
+        // lines skewed across the carriageway.
+        Road* arm = nullptr;
+        auto pr = parent_road.find(best);
+        if (pr != parent_road.end()) arm = pr->second;
+        if (arm && arm->target != best) {
+            // Walked against the arrow: the twin carries this direction.
+            auto twin = graph.edges.find(arm->id.size() > 2 &&
+                                         arm->id.compare(arm->id.size() - 2, 2, "_r") == 0
+                                             ? arm->id.substr(0, arm->id.size() - 2)
+                                             : arm->id + "_r");
+            arm = (twin != graph.edges.end() && twin->second->target == best)
+                      ? twin->second.get() : nullptr;
+        }
+        if (!arm || arm->has_signal_head) continue;
+
+        const Vec2& p = verts[v];
+        arm->has_signal_head = true;
+        arm->signal_head_x = p.x;
+        arm->signal_head_y = p.y;
+
+        // signal_stop_from_end is deliberately NOT overridden with the distance
+        // to the OSM node here. stop_line_position() is length - that value, so
+        // pushing it out to the signal (which is usually this arm's own start)
+        // puts the line at position 0: every vehicle is already past it on
+        // entry and none of them ever brake. assign_signal_groups() caps it at
+        // min(8, length * 0.4) for exactly that reason. The renderer follows
+        // this value instead, so the painted line lands where cars really stop.
+
+        // Local heading: the first segment of the walk, which is the piece of
+        // road the signal actually stands on. A stop line has to be square to
+        // THAT, not to the approach's overall chord.
+        Intersection* first = best;
+        while (parent_node.count(first) && parent_node[first] != start_node) {
+            first = parent_node[first];
+        }
+        double hx = best->x - p.x, hy = best->y - p.y;
+        if (parent_node.count(first) && parent_node[first] == start_node) {
+            hx = first->x - start_node->x;
+            hy = first->y - start_node->y;
+        }
+        const double hlen = std::hypot(hx, hy);
+        if (hlen > 1e-9) {
+            arm->signal_head_ux = hx / hlen;
+            arm->signal_head_uy = hy / hlen;
+        }
     }
-    if (signalized > 0) {
+
+    // Only the arms OSM actually signposted keep their phase group. signalize()
+    // hands one to EVERY approach, which stops traffic on arms the city leaves
+    // running -- a side street or a slip road held at a red light that exists
+    // nowhere in the data. OSM puts the node ON the way it governs precisely to
+    // say which road is stopped, so that is what is honoured here; arms without
+    // a head fall back to the junction's ordinary give-way arbitration.
+    int demoted = 0;
+    for (auto& [id, road] : graph.edges) {
+        if (road->signal_group >= 0 && !road->has_signal_head) {
+            road->signal_group = -1;
+            ++demoted;
+        }
+    }
+
+    // A junction whose every arm just lost its group has no light left to show.
+    for (auto& [id, node] : graph.intersections) {
+        if (!node->is_signalized()) continue;
+        bool any = false;
+        for (Road* r : node->incoming_edges) {
+            if (r->signal_group >= 0) { any = true; break; }
+        }
+        if (!any) graph.designalize(node->name);
+    }
+    if (demoted > 0) {
         std::fprintf(stderr,
-                     "[map] signalized %d junction(s) from OSM traffic_signals"
-                     " (%d skipped: nothing to arbitrate)\n",
-                     signalized, skipped);
+                     "[map] %d approach(es) left unsignalized: no traffic_signals"
+                     " node on them\n", demoted);
+    }
+    if (signalized > 0 || unmatched > 0 || refused > 0) {
+        std::fprintf(stderr,
+                     "[map] signalized %d junction(s) from %zu OSM traffic_signals"
+                     " (%d with no junction within %.0fm of road, %d with"
+                     " nothing to arbitrate)\n",
+                     signalized, signal_verts.size(), unmatched, kSignalSnapM,
+                     refused);
     }
 
     // ---- buildings (visual only) ------------------------------------------

@@ -517,8 +517,17 @@ std::string TrafficSimulator::state_json() {
             os << "{\"id\":" << jstr(id)
                << ",\"n\":" << jstr(road->target->name)
                << ",\"g\":" << road->signal_group
-               << ",\"d\":" << road->signal_stop_from_end
-               << ",\"state\":"
+               << ",\"d\":" << road->signal_stop_from_end;
+            // Where the source map actually put this head, when it said so.
+            // Approaches without one still report their state (they still stop
+            // traffic) but the renderer draws no head for them.
+            if (road->has_signal_head) {
+                os << ",\"hx\":" << road->signal_head_x
+                   << ",\"hy\":" << road->signal_head_y
+                   << ",\"hux\":" << road->signal_head_ux
+                   << ",\"huy\":" << road->signal_head_uy;
+            }
+            os << ",\"state\":"
                << road->target->signal_state_for(road->signal_group, sim_time_) << "}";
         }
     }

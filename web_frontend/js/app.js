@@ -612,19 +612,12 @@ function runPhase(rb, deadline) {
       rb.cursor = 0;
       return true;
     }
-    case 4: {  // stop-lines + trees
-      if (!rb.lod) {
-        g.strokeStyle = C.stopLine;
-        for (const h of signalHeads) {
-          if (h.sx < cull.minX || h.sx > cull.maxX || h.sy < cull.minY || h.sy > cull.maxY) continue;
-          const w = (roadWOf[h.baseId] || roadW) / 2;
-          g.lineWidth = Math.max(1, 1.2 * US * T.s);
-          g.beginPath();
-          g.moveTo(wx(h.sx - h.px * w), wy(h.sy - h.py * w));
-          g.lineTo(wx(h.sx + h.px * w), wy(h.sy + h.py * w));
-          g.stroke();
-        }
-      }
+    case 4: {  // trees
+      // Stop lines used to be painted here, one per approach into a signalized
+      // junction. That put a line across roads carrying no light at all, since
+      // signalizing a junction gives EVERY approach a phase group. They are now
+      // drawn in drawSignals(), beside the head they belong to -- which is live
+      // data the static layer cannot see.
       for (; rb.cursor < props.length; rb.cursor++) {
         if ((rb.cursor & 63) === 0 && performance.now() > deadline) return false;
         const p = props[rb.cursor];
@@ -691,7 +684,11 @@ const VEH_LEN = { car: 4.5, bus: 6.5, emergency: 5.0, motorbike: 2.0 };
 
 let simState = null;            // last snapshot from /api/state
 let lightState = {};
-let lightSetback = {};   // road id -> metres the stop line sits before the junction
+// road id -> {x, y} where the SOURCE MAP put this signal head. Only approaches
+// the map really carried a signal for appear here: signalizing a junction gives
+// every approach a phase group so traffic stops correctly, but drawing a head on
+// each of them would invent lights the city does not have.
+let lightHeadPos = {};
 // The vehicle whose route is highlighted, and the road ids of that route.
 // Fetched once per selection from /api/vehicle/detail rather than carried in
 // /api/state: a route can be 60+ roads, and multiplying that by every vehicle
@@ -774,7 +771,9 @@ function applyState(s) {
   lightState = {};
   for (const l of s.lights || []) {
     lightState[l.id] = l.state;
-    if (l.d !== undefined) lightSetback[l.id] = l.d;
+    if (l.hx !== undefined) {
+      lightHeadPos[l.id] = { x: l.hx, y: l.hy, ux: l.hux, uy: l.huy, d: l.d };
+    }
   }
   roadState = {};
   for (const r of s.roads || []) roadState[r.id] = r;
@@ -957,23 +956,66 @@ function drawSignals() {
   const rMinX = -T.tx / T.s, rMaxX = (canvas.width - T.tx) / T.s;
   const rMinY = -T.ty / T.s, rMaxY = (canvas.height - T.ty) / T.s;
   for (const h of signalHeads) {
-    if (h.sx < rMinX - 30 || h.sx > rMaxX + 30 || h.sy < rMinY - 30 || h.sy > rMaxY + 30) continue;
+    // Draw a head ONLY where the source map actually carried a signal. A
+    // signalized junction gives every approach a phase group -- that is what
+    // stops traffic, and it is left alone -- but putting a sprite on each of
+    // them invents lights the city does not have.
+    const pos = lightHeadPos[h.signalId];
+    if (!pos) continue;
+    if (pos.x < rMinX - 30 || pos.x > rMaxX + 30 || pos.y < rMinY - 30 || pos.y > rMaxY + 30) continue;
     const st = lightState[h.signalId];
-    ctx.fillStyle = st === undefined ? C.signalHead : LIGHT_COLOR[st] || C.signalHead;
-    const off = (roadWOf[h.baseId] || roadW) / 2 + 2.5 * US;
-    // The stop line is where the SERVER says it is, so the head sits exactly
-    // where vehicles are actually braking. Falls back to the geometric guess
-    // until the first state arrives.
-    const d = lightSetback[h.signalId];
-    let sx = h.sx, sy = h.sy;
-    if (d !== undefined) {
-      const back = Math.min(d * US, Math.hypot(h.bx - h.ax, h.by - h.ay) * 0.5);
-      sx = h.bx - h.ux * back;
-      sy = h.by - h.uy * back;
+    const spr = st !== undefined ? Sprites.get("light-" + st) : null;
+    // Sized from the map-wide roadW, never the per-road roadWOf: a signal head
+    // is a fixed piece of street furniture, so a light on a six-lane avenue
+    // must not be drawn bigger than one on a side street. Kept in WORLD units
+    // so the sideways offset below can clear the sprite's own width.
+    const lightH = roadW * 0.6;
+    const lightW = spr ? lightH * (spr.w / spr.h) : 0;
+    // Clear of the asphalt: half the road (which does track this road's own
+    // width) plus half the sprite, plus a verge so the head reads as street
+    // furniture beside the carriageway rather than something painted on it.
+    const off = (roadWOf[h.baseId] || roadW) / 2 + lightW / 2 + roadW * 0.35;
+    // Heading of the segment the signal actually stands on, straight from the
+    // server. Deriving it here from the approach's endpoints gives the chord,
+    // which on a curved or split approach lays the stop line across the road at
+    // an angle. h.px/h.py is only the fallback for a map that sends no heading.
+    let nx = h.px, ny = h.py;              // unit perpendicular, right-hand side
+    let ux = h.ux, uy = h.uy;
+    if (pos.ux !== undefined && (pos.ux !== 0 || pos.uy !== 0)) {
+      ux = pos.ux; uy = pos.uy;
+      nx = -uy; ny = ux;
     }
+    // Stand exactly where the server brakes cars: `d` metres back from the
+    // junction along the approach. Drawing at the raw signal coordinate instead
+    // leaves the queue stopped visibly short of its own painted line, since the
+    // server measures from the road's end and not from the signal node.
+    let sx = pos.x, sy = pos.y;
+    if (pos.d !== undefined) {
+      sx = h.bx - ux * pos.d;
+      sy = h.by - uy * pos.d;
+    }
+    // The stop line for THIS light, across the arm it governs. One line per
+    // drawn head, at the head's own position, so a road only gets a line when
+    // it actually has a light telling drivers to stop there.
+    const halfW = (roadWOf[h.baseId] || roadW) / 2;
+    ctx.strokeStyle = C.stopLine;
+    ctx.lineWidth = Math.max(1, 1.2 * US * T.s);
     ctx.beginPath();
-    ctx.arc(wx(sx + h.px * off), wy(sy + h.py * off), dot, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(wx(sx - nx * halfW), wy(sy - ny * halfW));
+    ctx.lineTo(wx(sx + nx * halfW), wy(sy + ny * halfW));
+    ctx.stroke();
+    // Beside its own stop line, so head, line and braking point read as one.
+    const px = wx(sx + nx * off), py = wy(sy + ny * off);
+    if (spr) {
+      const hPx = Math.max(5, lightH * T.s);
+      const wPx = hPx * (spr.w / spr.h);
+      ctx.drawImage(spr.img, px - wPx / 2, py - hPx / 2, wPx, hPx);
+    } else {
+      ctx.fillStyle = st === undefined ? C.signalHead : LIGHT_COLOR[st] || C.signalHead;
+      ctx.beginPath();
+      ctx.arc(px, py, dot, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
