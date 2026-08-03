@@ -28,18 +28,18 @@ struct TestNet {
     }
 
     void add_node(const std::string& name, double x, double y) {
-        graph.intersections[name] = new Intersection(name, x, y);
+        graph.intersections[name] = std::make_unique<Intersection>(name, x, y);
     }
 
     void add_road(const std::string& id, const std::string& from,
                   const std::string& to, int lanes) {
-        Intersection* a = graph.intersections.at(from);
-        Intersection* b = graph.intersections.at(to);
-        graph.edges[id] = new Road(id, a, b, lanes, 13.9, 12, true, 100.0, nullptr);
+        Intersection* a = graph.intersections.at(from).get();
+        Intersection* b = graph.intersections.at(to).get();
+        graph.edges[id] = std::make_unique<Road>(id, a, b, lanes, 13.9, 12, true, 100.0, nullptr);
     }
 
-    Intersection* node(const std::string& name) { return graph.intersections.at(name); }
-    Road* road(const std::string& id) { return graph.edges.at(id); }
+    Intersection* node(const std::string& name) { return graph.intersections.at(name).get(); }
+    Road* road(const std::string& id) { return graph.edges.at(id).get(); }
 };
 
 TrafficNotification make(TrafficNotification::Kind kind, const std::string& road_id) {
@@ -93,11 +93,11 @@ TEST_CASE("zone_wait is capped so a long wait cannot run away") {
 
 TEST_CASE("an unreachable destination leaves the vehicle without a route") {
     TrafficGraph graph;
-    graph.intersections["A"] = new Intersection("A", 0.0, 0.0);
-    graph.intersections["B"] = new Intersection("B", 100.0, 0.0);  // no road between
+    graph.intersections["A"] = std::make_unique<Intersection>("A", 0.0, 0.0);
+    graph.intersections["B"] = std::make_unique<Intersection>("B", 100.0, 0.0);  // no road between
 
     auto v = VehicleFactory::create("car", "v1");
-    v->request_route(&graph, graph.intersections["A"], graph.intersections["B"]);
+    v->request_route(&graph, graph.intersections["A"].get(), graph.intersections["B"].get());
     CHECK(v->get_route().empty());
     CHECK(v->get_current_road() == nullptr);
 }
@@ -292,11 +292,11 @@ TEST_CASE("congestion_sensitivity changes how much a jam slows a vehicle") {
     auto car = VehicleFactory::create("car", "same-id");
     auto amb = VehicleFactory::create("emergency", "same-id");  // same speed jitter
 
-    r->congestion_level = 0.0;
+    r->set_congestion_level(0.0);
     const double car_free = car->desired_speed_on(*r);
     const double amb_free = amb->desired_speed_on(*r);
 
-    r->congestion_level = 1.0;
+    r->set_congestion_level(1.0);
     const double car_jam = car->desired_speed_on(*r);
     const double amb_jam = amb->desired_speed_on(*r);
 

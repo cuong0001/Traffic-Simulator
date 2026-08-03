@@ -2,8 +2,8 @@
 """
 Compare BFS, Dijkstra and A* inside a running traffic simulation via its REST
 API. Records per-run stat deltas (trips, travel time, congestion, recomputes,
-search effort) across four traffic scenarios and writes a CSV, charts, and a
-markdown report.
+search effort, fleet velocity) across four traffic scenarios and writes a CSV,
+bar charts, velocity-over-time line charts, and a markdown report.
 
 The simulator must already be running on --host/--port (default localhost:8080).
 Charts need matplotlib (pip install matplotlib); the CSV is written regardless.
@@ -49,7 +49,8 @@ SCENARIOS = [
 METRICS = ["sim_seconds", "completed_trips", "trips_per_sim_min",
            "avg_travel_time_s", "avg_congestion", "route_recomputations",
            "recomputes_per_sim_min", "active_vehicles_end",
-           "avg_nodes_per_recompute", "avg_micros_per_recompute"]
+           "avg_nodes_per_recompute", "avg_micros_per_recompute",
+           "avg_velocity_norm"]
 
 
 def api_get(base, path, params=None, timeout=30):
@@ -70,7 +71,24 @@ def api_get(base, path, params=None, timeout=30):
         raise RuntimeError(f"non-JSON from {url}: {body[:200]}")
 
 
-def snapshot(state, algo=None):
+def load_road_speeds(base):
+    """road id -> speed limit (m/s) from /api/map. Adds the "_r" reverse twin of
+    every two-way road, which shares the forward road's limit. Used to normalise
+    fleet velocity (a vehicle's speed relative to its current road's limit)."""
+    data = api_get(base, "/api/map")
+    out = {}
+    for r in data.get("roads", []) or []:
+        rid = r.get("id")
+        if not rid:
+            continue
+        kmh = r.get("speed_kmh", 0.0)
+        ms = (kmh / 3.6) if kmh and kmh > 0.0 else 0.0
+        out[rid] = ms
+        out[rid + "_r"] = ms
+    return out
+
+
+def snapshot(state, algo=None, road_speed=None):
     s = state.get("stats", {}) or {}
     history = s.get("history") or []
     snap = {
@@ -81,6 +99,24 @@ def snapshot(state, algo=None):
         "active": state.get("active", 0),
         "congestion": history[-1].get("congestion", 0.0) if history else 0.0,
     }
+    # Fleet velocity: raw mean speed (m/s) and mean speed normalised by each
+    # vehicle's road speed limit (fraction of free-flow, roughly 0..1). The
+    # normalised form is comparable across road types -- slow side streets do
+    # not drag it down just for being slow.
+    vehs = state.get("vehicles", []) or []
+    if vehs:
+        speeds = [float(v.get("speed", 0.0)) for v in vehs]
+        snap["mean_speed"] = sum(speeds) / len(speeds)
+        norms = []
+        rs = road_speed or {}
+        for v in vehs:
+            lim = rs.get(v.get("road", ""), 0.0)
+            if lim > 0.0:
+                norms.append(float(v.get("speed", 0.0)) / lim)
+        snap["mean_norm_speed"] = sum(norms) / len(norms) if norms else 0.0
+    else:
+        snap["mean_speed"] = 0.0
+        snap["mean_norm_speed"] = 0.0
     if algo:
         alg = (s.get("algorithms") or {}).get(algo) or {}
         snap["algo_computations"] = alg.get("computations", 0)
@@ -104,7 +140,7 @@ def warm_up(base, sc, poll):
     time.sleep(20)  # let the jam pattern settle
 
 
-def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
+def run_one(base, sc, algo, sim_seconds, poll, cost_mode, road_speed):
     api_get(base, "/api/clearVehicles")
     api_get(base, "/api/speed", {"x": str(SPEED)})
     api_get(base, "/api/auto", {"on": "1"})
@@ -118,15 +154,21 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
 
     warm_up(base, sc, poll)
 
-    start = snapshot(api_get(base, "/api/state"), algo)
+    start = snapshot(api_get(base, "/api/state"), algo, road_speed)
     t0 = start["time"]
     samples = []
+    series = []       # (t_rel, mean_norm_speed) for the velocity line chart
+    vel_sum = 0.0
+    vel_count = 0
     deadline = time.monotonic() + (sim_seconds / SPEED) * 3 + 30
 
     while True:
         state = api_get(base, "/api/state")
-        snap = snapshot(state, algo)
+        snap = snapshot(state, algo, road_speed)
         samples.append(snap["congestion"])
+        series.append((round(snap["time"] - t0, 1), snap["mean_norm_speed"]))
+        vel_sum += snap["mean_norm_speed"]
+        vel_count += 1
         if snap["time"] - t0 >= sim_seconds:
             break
         if time.monotonic() > deadline:
@@ -134,7 +176,7 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
                   file=sys.stderr)
             break
         time.sleep(poll)
-    end = snapshot(state, algo)
+    end = snapshot(state, algo, road_speed)
 
     trips = end["trips"] - start["trips"]
     total0 = start["avg_travel"] * start["trips"]
@@ -152,7 +194,7 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
     recomputes = end["computations"] - start["computations"]
     sim_mins = (end["time"] - t0) / 60.0
 
-    return {
+    row = {
         "scenario": sc["key"],
         "algorithm": algo,
         "sim_seconds": round(end["time"] - t0, 1),
@@ -165,7 +207,9 @@ def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
         "active_vehicles_end": end["active"],
         "avg_nodes_per_recompute": round(avg_nodes, 1),
         "avg_micros_per_recompute": round(avg_micros, 1),
+        "avg_velocity_norm": round(vel_sum / vel_count, 3) if vel_count else 0.0,
     }
+    return row, series
 
 
 def aggregate(raw_rows):
@@ -191,14 +235,14 @@ def write_csv(raw_rows, run_id, ts_header):
                     "completed_trips", "trips_per_sim_min", "avg_travel_time_s",
                     "avg_congestion", "route_recomputations", "recomputes_per_sim_min",
                     "active_vehicles_end", "avg_nodes_per_recompute",
-                    "avg_micros_per_recompute"])
+                    "avg_micros_per_recompute", "avg_velocity_norm"])
         for r in raw_rows:
             w.writerow([ts_header, r["repeat"], r["scenario"], r["algorithm"],
                         r["sim_seconds"], r["completed_trips"], r["trips_per_sim_min"],
                         r["avg_travel_time_s"], r["avg_congestion"],
                         r["route_recomputations"], r["recomputes_per_sim_min"],
                         r["active_vehicles_end"], r["avg_nodes_per_recompute"],
-                        r["avg_micros_per_recompute"]])
+                        r["avg_micros_per_recompute"], r["avg_velocity_norm"]])
     return path
 
 
@@ -234,17 +278,81 @@ def write_charts(agg_rows, run_id):
     return True
 
 
+def interp_series(series, grid):
+    """Linearly interpolate a [(t, y), ...] series onto a fixed time grid so
+    repeats can be averaged on a common axis. Clamps outside the series range."""
+    out = []
+    if not series:
+        return [0.0] * len(grid)
+    for g in grid:
+        if g <= series[0][0]:
+            out.append(series[0][1])
+            continue
+        if g >= series[-1][0]:
+            out.append(series[-1][1])
+            continue
+        for i in range(len(series) - 1):
+            t0, y0 = series[i]
+            t1, y1 = series[i + 1]
+            if t0 <= g <= t1:
+                f = (g - t0) / (t1 - t0) if t1 > t0 else 0.0
+                out.append(y0 + f * (y1 - y0))
+                break
+    return out
+
+
+def write_velocity_charts(series_by_scenario, run_id):
+    """Line chart of mean fleet velocity (fraction of each road's speed limit,
+    roughly 0..1) over simulated time, one per scenario. Each algorithm is the
+    mean across its repeats with a min-max band. Returns markdown image refs,
+    or [] if matplotlib is missing."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not installed -- skipping velocity charts", file=sys.stderr)
+        return []
+
+    grid = list(range(0, SIM_SECONDS + 1, 20))
+    os.makedirs(f"docs/images/{run_id}", exist_ok=True)
+    refs = []
+    for sc in SCENARIOS:
+        runs = series_by_scenario.get(sc["key"], [])   # list of (algo, series)
+        fig, ax = plt.subplots(figsize=(9, 5))
+        for algo in ALGORITHMS:
+            series_list = [s for (a, s) in runs if a == algo]
+            if not series_list:
+                continue
+            grids = [interp_series(s, grid) for s in series_list]
+            mean = [sum(col) / len(col) for col in zip(*grids)]
+            lo = [min(col) for col in zip(*grids)]
+            hi = [max(col) for col in zip(*grids)]
+            ax.plot(grid, mean, label=algo)
+            ax.fill_between(grid, lo, hi, alpha=0.2)
+        ax.set_xlabel("simulated seconds")
+        ax.set_ylabel("mean fleet speed / road limit")
+        ax.set_title(f"Average network velocity — {sc['label']}")
+        ax.set_ylim(0.0, 1.0)
+        ax.legend(title="Algorithm")
+        fig.tight_layout()
+        fig.savefig(f"docs/images/{run_id}/experiments_velocity_{sc['key']}.png", dpi=120)
+        plt.close(fig)
+        refs.append(f"![{sc['label']}](images/{run_id}/experiments_velocity_{sc['key']}.png)")
+    return refs
+
+
 def fmt(val, rng, show_range):
     if show_range and rng > 0:
         return f"{val} ± {rng}"
     return str(val)
 
 
-def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
+def write_report(agg_rows, charts_ok, velocity_refs, run_id, ts_header, repeats, cost_mode):
     show_range = repeats > 1
     table_lines = [
-        "| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp | Vel (norm) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for sc in SCENARIOS:
         for r in sorted([x for x in agg_rows if x["scenario"] == sc["key"]],
@@ -257,7 +365,8 @@ def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
                 f"{fmt(r['recomputes_per_sim_min'], r['recomputes_per_sim_min_range'], show_range)} | "
                 f"{fmt(r['active_vehicles_end'], r['active_vehicles_end_range'], show_range)} | "
                 f"{fmt(r['avg_nodes_per_recompute'], r['avg_nodes_per_recompute_range'], show_range)} | "
-                f"{fmt(r['avg_micros_per_recompute'], r['avg_micros_per_recompute_range'], show_range)} |")
+                f"{fmt(r['avg_micros_per_recompute'], r['avg_micros_per_recompute_range'], show_range)} | "
+                f"{fmt(r['avg_velocity_norm'], r['avg_velocity_norm_range'], show_range)} |")
     table = "\n".join(table_lines)
 
     charts_section = ""
@@ -266,6 +375,9 @@ def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
             f"![{title}](images/{run_id}/experiments_{stem}.png)\n\n"
             for _, title, _, stem in CHARTS)
         charts_section = f"### Charts\n\n{chart_block}"
+    if velocity_refs:
+        vel_block = "\n".join(velocity_refs) + "\n"
+        charts_section += f"### Velocity over time\n\n{vel_block}"
 
     reps_note = f" ({repeats} repeats per combo, mean ± range)" if repeats > 1 else ""
     section = f"""## {ts_header}
@@ -327,15 +439,25 @@ def main():
         print(str(e), file=sys.stderr)
         return 2
 
+    try:
+        road_speed = load_road_speeds(base)
+    except RuntimeError as e:
+        print(f"[warn] could not load /api/map for velocity normalisation: {e}",
+              file=sys.stderr)
+        road_speed = {}
+
     raw_rows = []
+    series_by_scenario = {sc["key"]: [] for sc in SCENARIOS}
     for i, (sc, algo, secs, rep) in enumerate(runs, 1):
         rep_str = f" ({rep}/{repeats})" if repeats > 1 else ""
         print(f"[{i}/{len(runs)}] {sc['key']} / {algo}{rep_str} ...", end=" ", flush=True)
-        row = run_one(base, sc, algo, secs, args.poll_interval, args.cost_mode)
+        row, series = run_one(base, sc, algo, secs, args.poll_interval,
+                              args.cost_mode, road_speed)
         row["repeat"] = rep
         raw_rows.append(row)
+        series_by_scenario[sc["key"]].append((algo, series))
         print(f"trips/min={row['trips_per_sim_min']}  nodes={row['avg_nodes_per_recompute']}  "
-              f"micros={row['avg_micros_per_recompute']}")
+              f"micros={row['avg_micros_per_recompute']}  vel={row['avg_velocity_norm']}")
 
     now = datetime.now()
     run_id = now.strftime("%Y-%m-%d_%H-%M")
@@ -349,7 +471,12 @@ def main():
     if charts_ok:
         print("wrote 5 charts in docs/")
 
-    write_report(agg_rows, charts_ok, run_id, ts_header, repeats, args.cost_mode)
+    velocity_refs = write_velocity_charts(series_by_scenario, run_id)
+    if velocity_refs:
+        print("wrote 4 velocity charts in docs/")
+
+    write_report(agg_rows, charts_ok, velocity_refs, run_id, ts_header,
+                 repeats, args.cost_mode)
     print(f"appended to {REPORT_MD}")
     return 0
 

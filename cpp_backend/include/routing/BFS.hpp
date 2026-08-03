@@ -5,13 +5,12 @@
 #include <unordered_set>
 #include <queue>
 #include "routing/PathFinding.hpp"
-using namespace std;
 
 class TrafficGraph;
 class Intersection;
 class Road;
 
-class BFS : public PathFinding {
+class BFS final : public PathFinding {
 public:
     std::vector<Intersection*> find_path(const TrafficGraph& graph,
                                  const std::string& start_id,

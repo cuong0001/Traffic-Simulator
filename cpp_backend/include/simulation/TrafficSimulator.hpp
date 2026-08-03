@@ -64,33 +64,16 @@ struct BinarySnapshotHeader {
 };
 #pragma pack(pop)
 
+#include "simulation/JunctionArbiter.hpp"
+#include "simulation/MapEditor.hpp"
 #include "simulation/TrafficController.hpp"
 #include "utils/StatisticsManager.hpp"
 
 class TrafficGraph;
 class Vehicle;
 
-// Find one vehicle to release from every deadlock cycle in the wait-for graph.
-//
-// `waiting_on[i]` is the index of the single vehicle i is stuck behind, or -1.
-// Out-degree <= 1 makes the graph functional, so one O(n) pass with visit
-// stamps finds every cycle without recursion. Returns, per cycle, the member
-// that has been stuck longest -- releasing one is enough, because it frees the
-// next, and so on around the ring.
-//
-// Free function on purpose: it is the whole decision, it depends on nothing
-// but two arrays, and that makes it the part worth testing directly.
-std::vector<std::size_t> find_gridlock_cycle_leaders
-    (const std::vector<int>& waiting_on, const std::vector<double>& stuck_times);
-
 class TrafficSimulator {
 public:
-    // M7: break deadlocks by finding cycles in the wait-for graph. Each entry
-    // of `waiting_on` is the index of the one vehicle that vehicle is stuck
-    // behind, or -1. A real deadlock is a cycle in that graph.
-    void break_cycles(const std::vector<int>& waiting_on);
-    double cycle_timer_ = 0.0;   // seconds since the last cycle search
-
     // Singleton access.
     static TrafficSimulator& instance();
 
@@ -141,7 +124,7 @@ public:
     // rather than by rebuilding. Clamped to [7, 60]. Loading a map re-derives
     // it: the right distance belongs to the city, not to the session.
     void set_junction_approach(double metres);
-    double junction_approach() const { return junction_approach_; }
+    double junction_approach() const;
     // Routing strategy used by new vehicles: "astar" | "dijkstra" | "bfs".
     bool set_algorithm(const std::string& name);
     // What routes minimise ("distance" | "time"), applied to existing and
@@ -245,14 +228,24 @@ private:
     TrafficGraph* graph_ = nullptr;
     StatisticsManager stats_;
     TrafficController controller_;      // owns the events, Subject for vehicles
-    std::vector<Vehicle*> vehicles_;
+    std::vector<std::unique_ptr<Vehicle>> vehicles_;
+    int next_id_ = 1;
+
+    // Junction right-of-way, lane changes and gridlock relief, and live map
+    // editing: split out of TrafficSimulator so each has a class boundary of
+    // its own (see JunctionArbiter.hpp / MapEditor.hpp). Both are handed
+    // references to graph_/vehicles_/controller_/next_id_ above rather than
+    // owning them -- vehicle lifetime and the graph pointer itself stay
+    // TrafficSimulator's call. Declared after what they reference so
+    // constructor-order matches member-initializer-list order.
+    JunctionArbiter arbiter_{graph_, vehicles_, controller_};
+    MapEditor map_editor_{graph_, vehicles_, controller_, next_id_};
 
     std::mutex mtx_;
     bool paused_ = false;
     double speed_ = 1.0;
     double sim_time_ = 0.0;
     long tick_count_ = 0;
-    int next_id_ = 1;
 
     bool auto_spawn_ = true;
     double spawn_accum_ = 0.0;      // fractional vehicles owed by spawn_rate_
@@ -261,15 +254,7 @@ private:
     double spawn_rate_ = 1.0;       // vehicles per second when auto-spawning
     std::string algorithm_ = "dijkstra";
     CostMode cost_mode_ = CostMode::Time;
-    // Metres. See set_junction_approach(). Re-derived from the map on load.
-    double junction_approach_ = 26.0;
 
-    // per-tick traffic solver (mtx_ held) 
-    // A Vehicle only sees its own road, so everything needing a global view
-    // lives here: who is ahead, which lane is better, who goes first.
-    std::pair<Vehicle*, double> lead_in_lane(Vehicle* v) const;
-    double accel_in_lane(Vehicle* v, int lane) const;
-    Vehicle* follower_in_lane(Vehicle* v, int lane) const;
     // ---- published state snapshot ------------------------------------------
     void publish_loop();                        ///< publisher thread body
     // A mutex of its OWN. Reusing mtx_ would defeat the entire point: readers
@@ -288,53 +273,20 @@ private:
     std::mutex bin_snapshot_mtx_;
     std::shared_ptr<const std::vector<uint8_t>> bin_snapshot_;
 
-    void solve_lane_changes(double sim_time);          // MOBIL
-
-    // Right of way at unsignalized junctions. Takes the leader array that has
-    // already been resolved for this tick and, for every vehicle told to give
-    // way, replaces its leader with the STOP LINE -- so the vehicle brakes to
-    // it under IDM instead of being frozen. Also records the wait-for edge when
-    // what it is waiting for is genuinely parked in the box.
-    //
-    // It needs the leaders as INPUT as well as output: rule (c) below cannot
-    // tell whether entering the junction would leave the vehicle stranded
-    // across it without knowing what is already in front.
-    struct JunctionOccupant {
-        std::size_t vehicle_idx;
-        const Road* road;
-    };
-    std::vector<std::vector<JunctionOccupant>> node_occupants_;
-    std::vector<std::vector<std::size_t>> node_approaching_;
-
-    void solve_junctions(double dt, double sim_time,
-                         std::vector<std::pair<Vehicle*, double>>& leaders,
-                         std::vector<int>& waiting_on);
-    void solve_gridlock(double sim_time);              // forced / rescue
+    // M7: break deadlocks by finding cycles in the wait-for graph built by
+    // arbiter_.solve_junctions(). Only ever called from tick_leads_and_physics
+    // on its own cadence (cycle_timer_/kCycleCheckPeriod), so it stays a
+    // TrafficSimulator-private forwarder rather than public API.
+    void break_cycles(const std::vector<int>& waiting_on);
+    double cycle_timer_ = 0.0;   // seconds since the last cycle search
 
     // Metres derived from the map's own scale -- see set_junction_approach().
     static double default_junction_approach(const TrafficGraph& graph);
 
-    // Solver counters, reported by /api/state for the statistics panel.
-    long lane_changes_ = 0;
-    // Two different reasons to wait, counted apart because they mean opposite
-    // things. yields_ is "I gave way to another stream"; box_waits_ is "the
-    // road beyond the junction is full, so I stopped at the line rather than
-    // stall across it". A rise in the first says right of way is contested; a
-    // rise in the second says the network is backing up.
-    long yields_ = 0;
-    long box_waits_ = 0;
-    long forced_throughs_ = 0;
-    long rescues_ = 0;
-
     // The following all require mtx_ to be held by the caller.
-    void destroy_vehicle_locked(Vehicle* v);          // detach from road and free
-    bool remove_road_locked(const std::string& id);   // road + its "_r" twin
-    void invalidate_routes_locked();                  // ask everyone to replan
-    void reindex_locked();                            // refresh the id caches
+    void destroy_vehicle_locked(Vehicle* v);          // detach from road/events; caller erases from vehicles_ to free
 
     std::string current_map_path_;
 
     mutable std::mt19937 rng_{2026};
-    std::vector<std::string> node_ids_;  // cached ids for random selection
-    std::vector<std::string> road_ids_;
 };

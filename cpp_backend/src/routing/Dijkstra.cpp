@@ -25,7 +25,7 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
 
     // Check if the start and end are the same node
     if (start_id == end_id)
-        return { graph.intersections.at(start_id) };
+        return { graph.intersections.at(start_id).get() };
 
     init_distances(graph, start_id);
 
@@ -43,11 +43,11 @@ std::vector<Intersection*> Dijkstra::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Intersection* current = graph.intersections.at(current_name);
+        Intersection* current = graph.intersections.at(current_name).get();
 
         // Relax all outgoing edges
         for (Road* road : current->outgoing_edges) {
-            if (road->is_closed) continue;   // closed road is untraversable
+            if (road->is_closed()) continue;   // closed road is untraversable
             relax_edge(current, road);
         }
     }
@@ -61,7 +61,7 @@ void Dijkstra::init_distances(const TrafficGraph& graph,
     // Lazy init: "absent from dist" already means infinity, so there is no
     // reason to write 2617 infinities before a search that settles a few
     // hundred nodes.
-    Intersection* start = graph.intersections.at(start_id);
+    Intersection* start = graph.intersections.at(start_id).get();
     dist[start_id] = 0.0;
     prev[start_id] = nullptr;
     node_of[start_id] = start;

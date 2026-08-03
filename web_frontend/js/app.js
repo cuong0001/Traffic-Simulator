@@ -581,9 +581,6 @@ function runPhase(rb, deadline) {
         const len = Math.hypot(x2 - x1, y2 - y1) || 1;
         const px = -(y2 - y1) / len, py = (x2 - x1) / len;
 
-        const revRoad = roadById[r.id + "_r"];
-        const twoWay = !r.oneway && !!revRoad;
-
         const mark = (o, dashed, strokeStyle = C.dash) => {
           g.strokeStyle = strokeStyle;
           g.setLineDash(dashed ? [9 * US * T.s, 13 * US * T.s] : []);
@@ -595,29 +592,20 @@ function runPhase(rb, deadline) {
 
         g.lineWidth = Math.max(1, 1.4 * US * T.s);
 
-        if (twoWay) {
-          // Centre line: solid line separating the two opposing directions
+        // Same geometry the traffic is placed with -- see laneGeometryOf().
+        // Deriving the markings from it, rather than re-deriving halfW/lanes
+        // here, is what stops a future change to lane geometry from
+        // desynchronising the markings from where the vehicles actually are.
+        const fwd = laneGeometryOf(r.id);
+        if (fwd.twoWay) {
+          // Centre line: solid, separating the two opposing directions.
           mark(0, false, C.dash);
-          // Lane dividers within each direction
-          const halfW = totalW * 0.5;
-          const lanesFwd = Math.max(1, r.lanes || 1);
-          const laneWFwd = halfW / lanesFwd;
-          for (let i = 1; i < lanesFwd; i++) {
-            mark(i * laneWFwd, true);
-          }
-          const lanesRev = Math.max(1, revRoad.lanes || lanesFwd);
-          const laneWRev = halfW / lanesRev;
-          for (let i = 1; i < lanesRev; i++) {
-            mark(-i * laneWRev, true);
-          }
+          for (let i = 1; i < fwd.lanes; i++) mark(i * fwd.laneW, true);
+          const rev = laneGeometryOf(r.id + "_r");
+          for (let i = 1; i < rev.lanes; i++) mark(-i * rev.laneW, true);
         } else {
-          // 1-way road: lane dividers between adjacent lanes
-          const totalLanes = Math.max(1, r.lanes || 1);
-          const laneW = totalW / totalLanes;
-          const halfW = totalW * 0.5;
-          for (let i = 1; i < totalLanes; i++) {
-            mark(-halfW + i * laneW, true);
-          }
+          // One-way road: no centre line, dividers span the whole ribbon.
+          for (let i = 1; i < fwd.lanes; i++) mark(fwd.origin + i * fwd.laneW, true);
         }
         g.setLineDash([]);
       }
@@ -723,6 +711,31 @@ let snapPrev = null, snapCur = null;   // { t, byId: Map(id -> placed vehicle) }
 let pollInterval = 150;                // ms, recomputed after each poll
 let interpDelay = 210;                 // ms, ~1.4x the poll interval
 
+// Lane geometry for one road, in world units. ONE definition on purpose:
+// vehicle placement, the sprite width cap and the drawn lane markings all have
+// to agree about where a lane is, and they did not before — placement assumed
+// every road had a centre line, so on a ONE-WAY road it packed every lane into
+// the right half and the left half of the ribbon could never hold a vehicle.
+//
+// A two-way street draws a centre line at offset 0 and gives each direction the
+// half on its own side, so its forward lanes start AT the centre line
+// (origin 0). A one-way street has no centre line and its lanes span the whole
+// ribbon (origin -totalW/2). Lane 0 is the lane nearest the median in both
+// cases, which is what Vehicle::lane means backend-side.
+function laneGeometryOf(roadId) {
+  const r = roadById[roadId];
+  const base = roadId.endsWith("_r") ? roadId.slice(0, -2) : roadId;
+  const baseRoad = roadById[base] || r;
+  const totalW = roadWOf[base] || roadW;
+  const lanes = Math.max(1, (r && r.lanes) || 1);
+  // Same test the road renderer uses: a twin exists only for a two-way street,
+  // because prepareMap() synthesises "_r" for exactly those.
+  const twoWay = !!roadById[base + "_r"] && !(baseRoad && baseRoad.oneway);
+  const laneW = (twoWay ? totalW * 0.5 : totalW) / lanes;
+  const origin = twoWay ? 0 : -totalW * 0.5;
+  return { totalW, lanes, twoWay, laneW, origin };
+}
+
 // Place a vehicle from (road id, metres along it). Roads are straight segments
 // between two nodes — the loader already split curves into waypoint nodes — so
 // this is a plain lerp. Returns null when the road/nodes are unknown.
@@ -736,14 +749,12 @@ function placeOnRoad(roadId, pos, lane = 0, lat = 0) {
   const t = Math.max(0, Math.min(1, (pos || 0) / (r.length || len)));
   const ux = dx / len, uy = dy / len;
 
-  // Lateral placement: keep right of the centre line so opposing directions
-  // don't overlap, then step out by the lane index. `lat` is the in-progress
-  // lane-change drift the backend reports, in metres.
-  const base = r.id.endsWith("_r") ? r.id.slice(0, -2) : r.id;
-  const halfW = (roadWOf[base] || roadW) * 0.5;
-  const lanes = Math.max(1, r.lanes || 1);
-  const laneW = halfW / lanes;
-  const off = laneW * (lane + 0.5) + (lat || 0) * US;
+  // Lateral placement: step out by the lane index from wherever this road's
+  // lane 0 starts (see laneGeometryOf — a two-way street starts at its centre
+  // line, a one-way street at the left edge of the ribbon). `lat` is the
+  // in-progress lane-change drift the backend reports, in metres.
+  const { laneW, origin } = laneGeometryOf(r.id);
+  const off = origin + laneW * (lane + 0.5) + (lat || 0) * US;
 
   return {
     x: a.x + dx * t - uy * off,
@@ -897,15 +908,6 @@ function smoothHeading(id, target) {
   if (h < -Math.PI) h += Math.PI * 2;
   displayHeading.set(id, h);
   return h;
-}
-
-// The drawn width of one lane on a given road, so a sprite can be capped to it
-// and never overhang the asphalt.
-function laneWidthOf(roadId) {
-  const r = roadById[roadId];
-  if (!r) return roadW / 4;
-  const base = roadId.endsWith("_r") ? roadId.slice(0, -2) : roadId;
-  return (roadWOf[base] || roadW) * 0.5 / Math.max(1, r.lanes || 1);
 }
 
 function drawVehicles() {
@@ -1702,6 +1704,7 @@ export const __debug = {
   // the live array is only valid until the next call. Tests hold on to results.
   drawnVehicles: () => interpolatedVehicles().map((v) => ({ ...v })),
   placeOnRoad,
+  laneGeometryOf,
   selectVehicleRoute,
   clearRouteHighlight,
   reloadMap,

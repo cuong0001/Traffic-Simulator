@@ -5,6 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -174,11 +175,11 @@ TEST_CASE("events are created, described and expire on their own") {
     SUBCASE("a closure applies, shows up in state, and undoes itself") {
         const std::string id = sim.trigger_event("closure", road, 5.0);
         REQUIRE_FALSE(id.empty());
-        CHECK(sim.graph()->get_edge(road)->is_closed);
+        CHECK(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find(id) != std::string::npos);
 
         for (int i = 0; i < 60; ++i) sim.tick(0.1);   // 6 s > 5 s duration
-        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find("\"id\":\"" + id + "\"") == std::string::npos);
     }
     SUBCASE("a road cannot be closed twice") {
@@ -187,11 +188,11 @@ TEST_CASE("events are created, described and expire on their own") {
     }
     SUBCASE("an accident restores capacity when it clears") {
         Road* r = sim.graph()->get_edge(road);
-        const double before = r->capacity_scale;
+        const double before = r->get_capacity_scale();
         REQUIRE_FALSE(sim.trigger_event("accident", road, 3.0).empty());
-        CHECK(r->capacity_scale < before);
+        CHECK(r->get_capacity_scale() < before);
         for (int i = 0; i < 40; ++i) sim.tick(0.1);
-        CHECK(r->capacity_scale == doctest::Approx(before));
+        CHECK(r->get_capacity_scale() == doctest::Approx(before));
     }
 }
 
@@ -288,7 +289,7 @@ TEST_CASE("live map editing") {
     const std::size_t roads_before = sim.graph()->edges.size();
 
     SUBCASE("a junction can be added and joined to the network") {
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         CHECK(sim.graph()->intersections.size() == nodes_before + 1);
@@ -303,7 +304,7 @@ TEST_CASE("live map editing") {
         // slot in solve_junctions()'s per-node buckets. Guard against a
         // regression directly, without needing to simulate traffic across the
         // new junction to observe the corruption.
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
@@ -324,7 +325,7 @@ TEST_CASE("live map editing") {
         Road* new_road = sim.graph()->get_edge(rid);
         REQUIRE(new_road != nullptr);
         for (const auto& [id, road] : sim.graph()->edges) {
-            if (road == new_road || id == rid) continue;
+            if (road.get() == new_road || id == rid) continue;
             if (id == rid + "_r") continue;
             CHECK(road->base_index != new_road->base_index);
         }
@@ -338,9 +339,9 @@ TEST_CASE("live map editing") {
     SUBCASE("a road's speed and closed flag can be edited") {
         const std::string rid = sim.graph()->edges.begin()->first;
         CHECK(sim.update_road(rid, 30.0, true));
-        CHECK(sim.graph()->get_edge(rid)->is_closed);
+        CHECK(sim.graph()->get_edge(rid)->is_closed());
         CHECK(sim.update_road(rid, 60.0, false));
-        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed());
         CHECK_FALSE(sim.update_road("ghost", 30.0, false));
     }
 }
@@ -663,7 +664,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             bool has_ring = false, has_street = false;
             for (const auto& [rid, road] : sim.graph()->edges) {
-                if (road->source != node && road->target != node) continue;
+                if (road->source != node.get() && road->target != node.get()) continue;
                 if (road->is_internal) has_ring = true; else has_street = true;
             }
             if (!has_ring) continue;
@@ -693,7 +694,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             for (const auto& [rid, road] : sim.graph()->edges) {
                 if (!road->is_internal) continue;
-                if (road->source == node || road->target == node) {
+                if (road->source == node.get() || road->target == node.get()) {
                     ring_nodes.push_back(id);
                     break;
                 }
@@ -932,4 +933,62 @@ TEST_CASE("encode_binary_snapshot round-trips vehicle state") {
         CHECK(match->lane == v->lane);
         CHECK(((match->flags & 1) != 0) == v->current_road->reverse_twin);
     }
+}
+
+// ===========================================================================
+// Spawn lane selection: multi-lane roads must not run as single-lane roads
+// ===========================================================================
+namespace {
+
+// A single two-way street with 3 lanes per direction ("lanes":"6" splits
+// (6+1)/2 = 3 each way) between two junctions -- wide enough that if spawn
+// lane selection is biased toward index 0, it shows up immediately.
+const char* kWideRoadMap = R"({
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"@id":"way/1","highway":"primary","lanes":"6","maxspeed":"50"},
+     "geometry":{"type":"LineString","coordinates":[[0.0,0.0],[0.01,0.0]]}}
+  ]
+})";
+
+}  // namespace
+
+TEST_CASE("spawning spreads across empty lanes instead of always picking lane 0") {
+    TrafficSimulator& sim = TrafficSimulator::instance();
+    static const std::string path = write_map(kWideRoadMap, "uts_wide_road.geojson");
+    sim.load(path);
+    sim.set_auto_spawn(false);
+    sim.set_random_events(false);
+    sim.set_paused(false);
+
+    const auto ids = node_ids(sim);
+    REQUIRE(ids.size() == 2);
+
+    // The old rule initialised its "best gap" search at 1e9 and kept the
+    // first candidate on a strict >, so on an empty road every lane tied and
+    // the lowest-numbered one always won: every vehicle in the city spawned
+    // in lane 0, and because MOBIL only moves a vehicle that is actually held
+    // up, a 3-lane road ran as a 1-lane road forever.
+    std::map<int, int> hist;
+    for (int i = 0; i < 60; ++i) {
+        const std::string id = sim.spawn_vehicle(ids[0], ids[1], "car");
+        REQUIRE(!id.empty());
+        for (const auto& [rid, road] : sim.graph()->edges) {
+            for (Vehicle* v : road->vehicles) {
+                if (v && v->id == id) hist[v->lane]++;
+            }
+        }
+        // Clear before the next spawn: this test is about the LANE CHOICE at
+        // spawn time, not about queueing behaviour once the road fills up.
+        sim.clear_vehicles();
+    }
+
+    int lanes_used = 0;
+    for (const auto& [lane, n] : hist) if (n > 0) lanes_used++;
+    CAPTURE(hist[0]); CAPTURE(hist[1]); CAPTURE(hist[2]);
+    CHECK(lanes_used >= 2);        // more than one lane actually got chosen
+    // Fixed seed (rng_{2026}), so this is a property of the code, not a coin
+    // flip on the day: no single lane should take an implausible majority of
+    // 60 tries at 1/3 each.
+    CHECK(hist[0] < 45);
 }

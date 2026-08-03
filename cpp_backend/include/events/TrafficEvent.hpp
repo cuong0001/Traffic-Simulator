@@ -53,7 +53,7 @@ protected:
 };
 
 /// Traffic density spike: raises travel cost on one road.
-class CongestionEvent : public TrafficEvent {
+class CongestionEvent final : public TrafficEvent {
 public:
     CongestionEvent(std::string id, std::string roadId, double durationSeconds,
                     double intensity = 0.5);
@@ -69,7 +69,7 @@ private:
 };
 
 /// Accident: road capacity collapses and congestion soars.
-class AccidentEvent : public TrafficEvent {
+class AccidentEvent final : public TrafficEvent {
 public:
     AccidentEvent(std::string id, std::string roadId, double durationSeconds);
     std::string type() const override { return "accident"; }
@@ -81,7 +81,7 @@ public:
 };
 
 /// Full road closure: the edge becomes unusable.
-class RoadClosureEvent : public TrafficEvent {
+class RoadClosureEvent final : public TrafficEvent {
 public:
     RoadClosureEvent(std::string id, std::string roadId, double durationSeconds);
     std::string type() const override { return "closure"; }
@@ -93,7 +93,7 @@ public:
 };
 
 /// Broken / delayed traffic light: much shorter green phase.
-class TrafficLightEvent : public TrafficEvent {
+class TrafficLightEvent final : public TrafficEvent {
 public:
     TrafficLightEvent(std::string id, std::string intersectionId,
                       double durationSeconds);

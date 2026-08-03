@@ -4,12 +4,11 @@
 #include <unordered_map>
 #include <queue>
 #include "routing/PathFinding.hpp"
-using namespace std;
 class TrafficGraph;
 class Intersection;
 class Road;
 
-class Dijkstra : public PathFinding {
+class Dijkstra final : public PathFinding {
 public:
     std::vector<Intersection*> find_path(const TrafficGraph& graph,
                                  const std::string& start_id,

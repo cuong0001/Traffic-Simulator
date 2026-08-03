@@ -88,6 +88,80 @@ section("Map resolution — every directed road the simulator names must resolve
 }
 
 // ---------------------------------------------------------------------------
+section("Lane geometry — vehicles use the whole ribbon, not half of it");
+// ---------------------------------------------------------------------------
+{
+  // Placement, the lane markings and the sprite cap used to be three separate
+  // formulas. Two of them assumed every road has a centre line; a one-way
+  // road does not, so on one it packed every lane into the right half of the
+  // ribbon and the left half could never hold a vehicle -- most visible on a
+  // roundabout, where every ring segment is one-way. Fixed by having all
+  // three read laneGeometryOf(), which this section exercises directly
+  // through placeOnRoad() rather than re-deriving the geometry a fourth time.
+  //
+  // The projection is done here with plain vector math, independent of
+  // laneGeometryOf's own arithmetic, so this cannot pass just because
+  // placeOnRoad() and laneGeometryOf() agree with each other -- it checks
+  // that the placed point is actually where the road geometry says it should
+  // be.
+  const project = (roadId, pos, lane) => {
+    const r = D.roadById[roadId];
+    const a = D.nodeById[r.from], b = D.nodeById[r.to];
+    const p = D.placeOnRoad(roadId, pos, lane, 0);
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    // Perpendicular distance from the centreline, signed by placeOnRoad's own
+    // convention (it steps out along (-uy, ux)).
+    return (p.x - a.x) * -uy + (p.y - a.y) * ux;
+  };
+
+  const oneway = D.mapData.roads.find(
+    (r) => r.oneway && (r.lanes || 1) >= 2 && (r.length || 0) > 20 &&
+           D.nodeById[r.from] && D.nodeById[r.to]);
+  const twoway = D.mapData.roads.find(
+    (r) => !r.oneway && (r.lanes || 1) >= 2 && (r.length || 0) > 20 &&
+           D.nodeById[r.from] && D.nodeById[r.to] && D.roadById[r.id + "_r"]);
+
+  check("found a multi-lane one-way road to test", !!oneway,
+        oneway ? `${oneway.id} (${oneway.lanes} lanes)` : "none on this map");
+  check("found a multi-lane two-way road to test", !!twoway,
+        twoway ? `${twoway.id} (${twoway.lanes} lanes)` : "none on this map");
+
+  if (oneway) {
+    const g = D.laneGeometryOf(oneway.id);
+    check("one-way road: not classified as two-way", !g.twoWay);
+    const pos = Math.min(oneway.length * 0.5, 10);
+    const offs = [];
+    for (let lane = 0; lane < g.lanes; lane++) offs.push(project(oneway.id, pos, lane));
+
+    check("every lane sits inside the ribbon", offs.every((o) => Math.abs(o) <= g.totalW / 2 + 1e-6),
+          `offsets [${offs.map((o) => o.toFixed(2)).join(", ")}], half-width ${(g.totalW / 2).toFixed(2)}`);
+    // The bug, stated as an assertion: before the fix every offset here was
+    // positive (packed into the right half), so the left half of a one-way
+    // ribbon could never contain a vehicle. With >= 2 lanes spanning the
+    // whole width, the extremes must straddle the centre.
+    check("lanes span BOTH sides of the centreline (the bug is gone)",
+          Math.min(...offs) < -1e-6 && Math.max(...offs) > 1e-6,
+          `min ${Math.min(...offs).toFixed(2)}, max ${Math.max(...offs).toFixed(2)}`);
+  }
+
+  if (twoway) {
+    const g = D.laneGeometryOf(twoway.id);
+    check("two-way road: classified as two-way", g.twoWay);
+    const pos = Math.min(twoway.length * 0.5, 10);
+    const fwd = [];
+    for (let lane = 0; lane < g.lanes; lane++) fwd.push(project(twoway.id, pos, lane));
+    // Two-way roads were never broken (verified in an earlier pass: the
+    // formulas agreed exactly here), so this is a non-regression check --
+    // forward traffic stays on its own side, inside its half of the ribbon.
+    check("two-way forward lanes stay on their own side, inside the ribbon",
+          fwd.every((o) => o > 0 && o <= g.totalW / 2 + 1e-6),
+          `offsets [${fwd.map((o) => o.toFixed(2)).join(", ")}]`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Vehicles actually reach the screen");
 // ---------------------------------------------------------------------------
 {
@@ -376,8 +450,12 @@ section("Per-frame cost");
   check("live-road list is merged and thresholded",
         D.liveRoads.length <= stateRoads,
         `${D.liveRoads.length} drawn entries from ${stateRoads} reported roads`);
-  check("live roads carry no duplicate streets",
-        new Set(D.liveRoads.map((e) => e.base)).size === D.liveRoads.length);
+  // One entry per DIRECTION, not per physical street: drawRoadStatus() offsets
+  // each direction to its own half and tints it with its own congestion, so a
+  // jammed inbound and a clear outbound on the same street are two entries
+  // sharing a `base` on purpose. What must stay unique is the directed id.
+  check("live roads carry no duplicate directed ids",
+        new Set(D.liveRoads.map((e) => e.id)).size === D.liveRoads.length);
 
   // Frame cost with the whole city in view.
   D.fitView();

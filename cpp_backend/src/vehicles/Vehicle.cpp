@@ -80,9 +80,9 @@ void Vehicle::set_cost_mode(CostMode mode) {
 }
 
 Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_decel)
-    : id(id), current_road(nullptr), destination(nullptr), position_on_road(0.0),
-      current_speed(0.0), max_speed(max_speed), accel(0.0), max_accel(max_accel),
-      max_decel(max_decel), route_index(-1), is_reached_destination(false),
+    : id(id), current_road(nullptr), position_on_road(0.0), current_speed(0.0),
+      destination_(nullptr), max_speed_(max_speed), accel_(0.0), max_accel_(max_accel),
+      max_decel_(max_decel), route_index_(-1), is_reached_destination_(false),
       router_(make_router(algorithm_)) {
 
     // Derive the speed personality from a hash of the id, so identical cars
@@ -127,19 +127,19 @@ double Vehicle::idm_accel(double v, double v0, double v_lead, double gap) {
 
 double Vehicle::desired_speed_on(const Road& road) const {
     const double free_flow =
-        std::min(max_speed, road.effective_speed_ms(congestion_sensitivity()));
+        std::min(max_speed_, road.effective_speed_ms(congestion_sensitivity()));
     return free_flow * speed_factor() * idm_factor;
 }
 
 void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersection* target) {
     if (!graph || !start || !target) return;
 
-    destination = target;
-    is_reached_destination = false;
+    destination_ = target;
+    is_reached_destination_ = false;
 
     std::vector<Intersection*> node_path = run_router(*graph, start->name, target->name);
 
-    route.clear();
+    route_.clear();
 
     for (size_t i = 0; i + 1 < node_path.size(); ++i) {
         Intersection* u = node_path[i];
@@ -153,17 +153,17 @@ void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersecti
             }
         }
         if (found_road) {
-            route.push_back(found_road);
+            route_.push_back(found_road);
         }
     }
 
-    if (!route.empty()) {
-        route_index = 0;
-        current_road = route[route_index];
+    if (!route_.empty()) {
+        route_index_ = 0;
+        current_road = route_[route_index_];
         position_on_road = 0.0;
         current_road->add_vehicle(this);
     } else {
-        route_index = -1;
+        route_index_ = -1;
         current_road = nullptr;
     }
 }
@@ -173,7 +173,7 @@ void Vehicle::request_route(TrafficGraph* graph, Intersection* start, Intersecti
 void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
     if (!graph || !target) return;
 
-    destination = target;
+    destination_ = target;
 
     std::string start_node_id = current_road ? current_road->target->name : "";
     if (start_node_id.empty()) return;
@@ -196,11 +196,11 @@ void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
 
     if (!new_route.empty()) {
         Road* saved_current = current_road;
-        route.clear();
-        route.push_back(saved_current);
-        route.insert(route.end(), new_route.begin(), new_route.end());
-        route_index = 0; 
-        is_reached_destination = false;
+        route_.clear();
+        route_.push_back(saved_current);
+        route_.insert(route_.end(), new_route.begin(), new_route.end());
+        route_index_ = 0;
+        is_reached_destination_ = false;
         route_dirty_ = false;
         recompute_cooldown_ = 5.0;  // Minimum 5s cooldown between reroutes
         ++recalculations_;
@@ -209,17 +209,18 @@ void Vehicle::recompute_route(TrafficGraph* graph, Intersection* target) {
 
 // Getters
 std::string Vehicle::get_id() const { return id; }
-bool Vehicle::has_reached_destination() const { return is_reached_destination; }
+bool Vehicle::has_reached_destination() const { return is_reached_destination_; }
 Road* Vehicle::get_current_road() const { return current_road; }
+Intersection* Vehicle::get_destination() const { return destination_; }
 double Vehicle::get_position_on_road() const { return position_on_road; }
-const std::vector<std::string>& Vehicle::get_travel_history() const { return travel_history; }
-const std::vector<Road*>& Vehicle::get_route() const { return route; }
-int Vehicle::get_route_index() const { return route_index; }
+const std::vector<std::string>& Vehicle::get_travel_history() const { return travel_history_; }
+const std::vector<Road*>& Vehicle::get_route() const { return route_; }
+int Vehicle::get_route_index() const { return route_index_; }
 double Vehicle::get_current_speed() const { return current_speed; }
-double Vehicle::get_max_speed() const { return max_speed; }
-double Vehicle::get_acceleration() const { return accel; }
-double Vehicle::get_max_acceleration() const { return max_accel; }
-double Vehicle::get_max_deceleration() const { return max_decel; }
+double Vehicle::get_max_speed() const { return max_speed_; }
+double Vehicle::get_acceleration() const { return accel_; }
+double Vehicle::get_max_acceleration() const { return max_accel_; }
+double Vehicle::get_max_deceleration() const { return max_decel_; }
 std::size_t Vehicle::last_nodes_explored() const {
     return router_ ? router_->nodes_explored() : 0;
 }
@@ -230,9 +231,9 @@ std::size_t Vehicle::last_nodes_explored() const {
 
 // ---- Observer -----------------------------------------------------------
 bool Vehicle::remaining_route_contains(const std::string& road_id) const {
-    for (std::size_t i = static_cast<std::size_t>(std::max(0, route_index));
-         i < route.size(); ++i) {
-        if (route[i] && route[i]->id == road_id) return true;
+    for (std::size_t i = static_cast<std::size_t>(std::max(0, route_index_));
+         i < route_.size(); ++i) {
+        if (route_[i] && route_[i]->id == road_id) return true;
     }
     return false;
 }
@@ -304,7 +305,7 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
     // Keep the motion state. The whole point of transferring rather than
     // respawning is that the driver does not notice the edit: same speed, same
     // lane if that lane still exists, same sideways drift.
-    const std::vector<int> ok = allowed_lanes(new_road->lanes);
+    const std::vector<int> ok = allowed_lanes(new_road->get_lanes());
     if (std::find(ok.begin(), ok.end(), lane) == ok.end()) {
         lane = ok.empty() ? 0 : ok.front();
         target_lateral_offset = 0.0;
@@ -312,9 +313,9 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
 
     // The old route ran along a road that is gone. Keep only where we are and
     // ask for a replan; the simulator picks it up on the next tick.
-    route.clear();
-    route.push_back(new_road);
-    route_index = 0;
+    route_.clear();
+    route_.push_back(new_road);
+    route_index_ = 0;
     needs_reroute_ = true;
 
     new_road->add_vehicle(this);
@@ -322,12 +323,12 @@ void Vehicle::transfer_to_road(Road* new_road, double progress_meters) {
 
 // ---- gridlock relief ----------------------------------------------------
 bool Vehicle::rescue_to(std::size_t new_index) {
-    if (new_index >= route.size()) return false;
-    Road* dest = route[new_index];
+    if (new_index >= route_.size()) return false;
+    Road* dest = route_[new_index];
     if (!dest) return false;
 
     int dest_lane = lane;
-    const std::vector<int> ok = allowed_lanes(dest->lanes);
+    const std::vector<int> ok = allowed_lanes(dest->get_lanes());
     if (std::find(ok.begin(), ok.end(), dest_lane) == ok.end()) {
         dest_lane = ok.empty() ? 0 : ok.front();
     }
@@ -336,12 +337,12 @@ bool Vehicle::rescue_to(std::size_t new_index) {
     if (!entry_slot_free(*dest, dest_lane, 0.0, length_meters())) return false;
 
     if (current_road) current_road->remove_vehicle(this);
-    route_index = static_cast<int>(new_index);
+    route_index_ = static_cast<int>(new_index);
     current_road = dest;
     position_on_road = 0.0;
     lane = dest_lane;
     current_speed = 0.0;
-    accel = 0.0;
+    accel_ = 0.0;
     stuck_time = 0.0;
     zone_wait_ = 0.0;
     current_road->add_vehicle(this);
@@ -350,7 +351,7 @@ bool Vehicle::rescue_to(std::size_t new_index) {
 
 // ---- simulator-driven movement ------------------------------------------
 void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_time) {
-    if (is_reached_destination || !current_road) return;
+    if (is_reached_destination_ || !current_road) return;
 
     travel_time_ += dt;
     lane_change_cooldown_ = std::max(0.0, lane_change_cooldown_ - dt);
@@ -362,7 +363,7 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
 
     Intersection* next_node = current_road->target;
     const bool forced = is_forced(sim_time);
-    if (!ignores_lights() && !forced && next_node && next_node->is_signalized &&
+    if (!ignores_lights() && !forced && next_node && next_node->is_signalized() &&
         current_road->signal_group >= 0) {
         // The stop line sits a few metres BEFORE the junction, so a vehicle
         // held on red waits at the line instead of standing in the box. The
@@ -398,9 +399,9 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
     // Record WHY we are about to move or not, before the physics runs. A red
     // light is checked first because it outranks everything else: a vehicle
     // stopped at a light is not blocked, it is obeying.
-    if (is_reached_destination) {
+    if (is_reached_destination_) {
         state_ = State::Arrived;
-    } else if (route.empty()) {
+    } else if (route_.empty()) {
         state_ = State::Planning;
     } else if (effective_gap < gap) {
         // effective_gap was shortened above, which only happens for a signal.
@@ -413,10 +414,10 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
 
     // ---- 2. IDM acceleration ---------------------------------------------
     const double v_lead = lead ? lead->current_speed : 0.0;
-    accel = idm_accel(current_speed, v0, v_lead, effective_gap);
-    accel = std::clamp(accel, -max_decel, max_accel);
+    accel_ = idm_accel(current_speed, v0, v_lead, effective_gap);
+    accel_ = std::clamp(accel_, -max_decel_, max_accel_);
 
-    current_speed = std::max(0.0, current_speed + accel * dt);
+    current_speed = std::max(0.0, current_speed + accel_ * dt);
 
     // ---- 3. move, never through the car in front --------------------------
     double step = current_speed * dt;
@@ -446,13 +447,13 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
     // ---- 6. hand over to the next road ------------------------------------
     if (position_on_road >= current_road->length) {
         const double overshoot = position_on_road - current_road->length;
-        const int next_index = route_index + 1;
+        const int next_index = route_index_ + 1;
 
-        if (next_index < static_cast<int>(route.size())) {
-            Road* next = route[next_index];
+        if (next_index < static_cast<int>(route_.size())) {
+            Road* next = route_[next_index];
             // Keep to a lane this vehicle is allowed to use on the new road.
             int next_lane = lane;
-            const std::vector<int> ok = allowed_lanes(next->lanes);
+            const std::vector<int> ok = allowed_lanes(next->get_lanes());
             if (std::find(ok.begin(), ok.end(), next_lane) == ok.end()) {
                 next_lane = ok.empty() ? 0 : ok.back();
             }
@@ -463,28 +464,28 @@ void Vehicle::advance(double dt, const Vehicle* lead, double gap, double sim_tim
             if (!entry_slot_free(*next, next_lane, overshoot, length_meters())) {
                 position_on_road = current_road->length;
                 current_speed = 0.0;
-                accel = 0.0;
+                accel_ = 0.0;
                 return;
             }
 
-            travel_history.push_back(current_road->id);
+            travel_history_.push_back(current_road->id);
             current_road->remove_vehicle(this);
-            route_index = next_index;
+            route_index_ = next_index;
             current_road = next;
             position_on_road = overshoot;
             lane = next_lane;
             prev_lane_ = -1;
             current_road->add_vehicle(this);
         } else {
-            travel_history.push_back(current_road->id);
+            travel_history_.push_back(current_road->id);
             current_road->remove_vehicle(this);
-            route_index = next_index;
-            is_reached_destination = true;
+            route_index_ = next_index;
+            is_reached_destination_ = true;
             state_ = State::Arrived;
             current_road = nullptr;
             position_on_road = 0.0;
             current_speed = 0.0;
-            accel = 0.0;
+            accel_ = 0.0;
         }
     }
 }

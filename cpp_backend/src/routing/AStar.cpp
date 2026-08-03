@@ -52,7 +52,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         return {};
 
     if (start_id == end_id)
-        return { graph.intersections.at(start_id) };
+        return { graph.intersections.at(start_id).get() };
 
     // In Time mode the admissible heuristic is distance / fastest speed on
     // the map. Recompute the max speed once per query so it stays fresh after
@@ -65,7 +65,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
     }
 
     init_scores(graph, start_id, end_id);
-    Intersection* goal = graph.intersections.at(end_id);
+    Intersection* goal = graph.intersections.at(end_id).get();
 
     while (!pq.empty()) {
         auto [f, current_name] = pq.top();
@@ -81,10 +81,10 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         if (current_name == end_id)
             return reconstruct_path(start_id, end_id);
 
-        Intersection* current = graph.intersections.at(current_name);
+        Intersection* current = graph.intersections.at(current_name).get();
 
         for (Road* road : current->outgoing_edges) {
-            if (road->is_closed) continue;   // closed road is untraversable
+            if (road->is_closed()) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
             double tentative_g = g_score[current_name] + road->cost(cost_mode_);
 
@@ -95,7 +95,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
                 prev[neighbour->name] = current;
                 node_of[neighbour->name] = neighbour;
                 g_score[neighbour->name] = tentative_g;
-                f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
+f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
                 pq.push({ f_score[neighbour->name], neighbour->name });
             }
         }
@@ -107,11 +107,11 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
 void AStar::init_scores(const TrafficGraph& graph,
                         const std::string& start_id,
                         const std::string& end_id) {
-    // Lazy init: "absent from g_score" already means infinity, so there is no
+// Lazy init: "absent from g_score" already means infinity, so there is no
     // reason to write 2617 infinities before a search that settles a few
     // hundred nodes.
-    Intersection* goal = graph.intersections.at(end_id);
-    Intersection* start = graph.intersections.at(start_id);
+    Intersection* goal = graph.intersections.at(end_id).get();
+    Intersection* start = graph.intersections.at(start_id).get();
 
     g_score[start_id] = 0.0;
     f_score[start_id] = heuristic(start, goal);

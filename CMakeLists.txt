@@ -52,6 +52,8 @@ set(BACKEND_SOURCES
     cpp_backend/src/vehicles/Vehicle.cpp
     cpp_backend/src/vehicles/VehicleTypes.cpp
     cpp_backend/src/simulation/TrafficController.cpp
+    cpp_backend/src/simulation/JunctionArbiter.cpp
+    cpp_backend/src/simulation/MapEditor.cpp
     cpp_backend/src/simulation/TrafficSimulator.cpp
 )
 
