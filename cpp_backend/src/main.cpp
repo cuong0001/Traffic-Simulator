@@ -171,6 +171,12 @@ int main(int argc, char** argv) {
             return sim.set_algorithm(get("name")) ? ok_true
                  : "{\"ok\":false,\"error\":\"unknown algorithm\"}";
         }
+        if (p == "/api/costMode") {
+            const std::string mode = get("mode");
+            if (mode == "time") { sim.set_cost_mode(CostMode::Time); return ok_true; }
+            if (mode == "distance") { sim.set_cost_mode(CostMode::Distance); return ok_true; }
+            return "{\"ok\":false,\"error\":\"unknown cost mode\"}";
+        }
 
         // ---- vehicle operations -------------------------------------------
         if (p == "/api/vehicle/detail") return sim.vehicle_detail_json(get("id"));
