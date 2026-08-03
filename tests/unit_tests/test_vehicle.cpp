@@ -264,6 +264,30 @@ TEST_CASE("advance() refuses to enter a slot another vehicle already holds") {
     CHECK(v->get_current_speed() == doctest::Approx(0.0));
 }
 
+TEST_CASE("advance() refuses a handover the old length check would have allowed") {
+    TestNet net;
+    // A car stopped a few metres into R2. The old entry_slot_free() only
+    // weighed the STOPPED car's own length here (4.5 + 0.25 = 4.75m needed);
+    // a much longer bus handing over from R1 would have passed that bar and
+    // landed with its rear end still inside the car.
+    auto blocker = VehicleFactory::create("car", "blocker");
+    blocker->current_road = net.road("R2");
+    blocker->position_on_road = 6.0;
+    net.road("R2")->add_vehicle(blocker.get());
+
+    auto v = VehicleFactory::create("bus", "v1");
+    v->request_route(&net.graph, net.node("A"), net.node("C"));
+    v->position_on_road = net.road("R1")->length - 0.01;
+    v->current_speed = 10.0;
+
+    v->advance(0.1, nullptr, 1e9, 0.0);
+
+    // Must be held at R1's stop line, not overlapping the blocker.
+    CHECK(v->get_current_road()->id == "R1");
+    CHECK(v->get_position_on_road() == doctest::Approx(net.road("R1")->length));
+    CHECK(v->get_current_speed() == doctest::Approx(0.0));
+}
+
 TEST_CASE("set_lane records the lane we came from and starts a cooldown") {
     TestNet net;
     auto v = VehicleFactory::create("car", "v1");

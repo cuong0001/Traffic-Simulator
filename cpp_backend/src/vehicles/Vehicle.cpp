@@ -40,13 +40,20 @@ constexpr double kStuckSpeed = 0.3;          // m/s below which we count as stop
 // an empty road ahead and both hand over onto it in the same tick. This check
 // keeps the second one out: it runs during the move loop, so it sees whoever
 // already claimed the slot.
+//
+// position_on_road is the vehicle's CENTRE everywhere else in the codebase --
+// gap_between() in JunctionArbiter.cpp, which drives the live following gap,
+// requires half of BOTH vehicles' lengths for exactly that reason. This used
+// to require only one vehicle's full length, picked by which side of `entry`
+// it was on; that gives the right answer only when both vehicles happen to be
+// the same length, and under-counts the required clearance by up to half the
+// length difference otherwise -- confirmed live as a car and a bus landing
+// 0.75m into each other at a handover.
 bool entry_slot_free(const Road& road, int lane, double entry, double len) {
     for (const Vehicle* o : road.vehicles) {
         if (!o || o->lane != lane) continue;
         const double d = o->position_on_road - entry;
-        // d >= 0: the other vehicle is in front, so its length is what matters.
-        // d <  0: it is behind, so ours is.
-        const double needed = (d >= 0.0 ? o->length_meters() : len) + kContactMargin;
+        const double needed = 0.5 * (o->length_meters() + len) + kContactMargin;
         if (std::abs(d) < needed) return false;
     }
     return true;
