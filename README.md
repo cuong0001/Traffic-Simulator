@@ -120,19 +120,33 @@ cannot represent at all. A continuous lateral-position model (real sub-lane
 offsets, overtaking within a lane) is the natural next step, and would also
 let the four vehicle types differ in width rather than only in length.
 
-Overlaps *between* vehicles are checked for at all three points a vehicle's
-position can change discontinuously: same-lane following and road handovers
-(`gap_between()` and `entry_slot_free()`), and lane changes
-(`solve_lane_changes()`'s slot check). That last one was added late, after
-sampling a live 600-vehicle run turned up 306 real overlaps in 90 seconds,
-the worst a full car length deep. The cause was a blind spot rather than a
-missing check: `accel_in_lane()` only looks at vehicles strictly *ahead* and
-`follower_in_lane()` only strictly *behind*, so a vehicle sitting at exactly
+**Vehicles still visibly overlap on screen, and mostly for a rendering
+reason rather than a physics one.** Measuring the drawn sprites as oriented
+boxes at 600 vehicles found overlaps constantly, up to 1.8m of penetration
+— which is exactly one vehicle width, i.e. fully sideways-overlapping,
+not nose-to-tail. The cause is a scale mismatch: `US` (the cosmetic
+road-width factor) clamps to **0.2** on a dense OSM import, so lanes are
+drawn at a fifth of their true width, while vehicle sprites scale by `VS`,
+which floors at **0.35**. Sprites are therefore drawn wider than the lane
+that contains them, and neighbouring lanes visually collide even when the
+simulation's own spacing is correct. Making `VS` track `US` (or drawing
+lanes at true width) is the fix, and it is a renderer change — the physics
+is not what is wrong here.
+
+*Longitudinal* spacing within a lane is separately enforced, at all three
+points a vehicle's position can change discontinuously: same-lane following
+and road handovers (`gap_between()` and `entry_slot_free()`), and lane
+changes (`solve_lane_changes()`'s slot check). That last one was added
+late, after sampling turned up 306 same-lane overlaps in 90 seconds, the
+worst a full car length deep. The cause was a blind spot rather than a
+missing check: `accel_in_lane()` only looks at vehicles strictly *ahead*
+and `follower_in_lane()` only strictly *behind*, so a vehicle at exactly
 the same position in the target lane — two cars side by side, which is
 precisely what a queue at a stop line produces — was invisible to both, and
-MOBIL read the lane as empty. The fix checks absolute distance, the same way
-`entry_slot_free()` already did. Re-measured under identical conditions:
-**306 overlaps → 0**.
+MOBIL read the lane as empty. Fixed by checking absolute distance, the same
+way `entry_slot_free()` already did: **306 same-lane overlaps → 0** under
+identical conditions. That fix is real, but it addresses only same-lane
+spacing and does not touch the rendering-scale problem above.
 
 **Deadlocks are recovered from, not prevented.** `solve_gridlock()`,
 `break_cycles()` and `rescue_to()` (which teleports a hopelessly stuck
