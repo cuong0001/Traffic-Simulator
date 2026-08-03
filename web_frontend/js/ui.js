@@ -420,13 +420,6 @@ function syncSettings(state) {
         rate.value = state.spawnRate;
         $("spawnrate-val").textContent = `${Number(state.spawnRate).toFixed(1)}/s`;
     }
-    // Derived from the map on load, so show what the server actually chose
-    // rather than whatever the markup happened to say.
-    const appr = $("approach-slider");
-    if (appr && !settingsSynced && state.junctionApproach !== undefined) {
-        appr.value = Math.round(state.junctionApproach);
-        $("approach-val").textContent = `${Math.round(state.junctionApproach)} m`;
-    }
     const algo = $("algo-select");
     if (algo && !settingsSynced && state.algorithm) algo.value = state.algorithm;
     const rnd = $("chk-random");
@@ -542,15 +535,6 @@ export function init(h) {
     $("spawnrate-val").textContent = `${v.toFixed(1)}/s`;
     Sim.setSpawnRate(v);
   });
-
-  const approach = $("approach-slider");
-  if (approach) {
-    approach.addEventListener("input", () => {
-      const v = Number(approach.value);
-      $("approach-val").textContent = `${v} m`;
-      Sim.setJunctionApproach(v);
-    });
-  }
 
   $("target-apply").addEventListener("click", async () => {
     const v = Math.max(0, Number($("target-input").value) || 0);

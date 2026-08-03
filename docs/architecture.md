@@ -4,8 +4,7 @@ This document describes the C++ simulation engine in `cpp_backend/`, organised
 by the five component categories the assignment brief asks for (§7: Graph,
 Vehicle, Algorithm, Simulation, Utility), and the design pattern each class
 demonstrates. It reflects the code as it stands after the full OOP hardening
-pass (RAII ownership, encapsulation, and the `TrafficSimulator` split) — see
-`docs/PLAN-oop-hardening.md` for the reasoning behind each change.
+pass: RAII ownership, encapsulation, and the `TrafficSimulator` split.
 
 ## Graph component
 
@@ -61,6 +60,17 @@ exactly like `Road`'s hot-path fields. `destination`, `max_speed`,
 `is_reached_destination` had zero-to-single-digit external touch points, so
 they sit behind the getters that (mostly) already existed.
 
+`idm_accel()`'s constants are retuned tighter than textbook IDM on purpose
+(this sim reads as dense urban traffic, not an open highway), and it also
+gains a term textbook IDM doesn't have at all: ordinary IDM only reacts to a
+gap that is already tight, so two vehicles that reach the same speed with
+room to spare just hold whatever gap they happened to spawn with, forever.
+A bounded "close up" term raises the free-flow speed ceiling while there's
+slack worth taking up — real drivers tuck in behind the car ahead because
+there's room, not because they're forced to — and hands back off to the
+ordinary braking term as the gap closes, so it never weakens the
+collision-avoidance guarantee it's layered on top of.
+
 **`Car` / `Bus` / `EmergencyVehicle` / `Motorbike`** (`vehicles/VehicleTypes.hpp`,
 all `final`) override `Vehicle`'s virtual hooks — `speed_factor()`,
 `length_meters()`, `congestion_sensitivity()`, `ignores_lights()`,
@@ -87,12 +97,12 @@ without each one re-implementing the counter.
 ## Simulation component
 
 **`TrafficSimulator`** (Singleton — `instance()`) drives the world: the
-four-phase tick loop (events/lanes → leads/physics → cleanup/spawn →
-statistics), vehicle spawn/despawn, and state serialization
-(`state_json()`/`encode_binary_snapshot()`, each published on its own cadence
-to a lock-free snapshot so HTTP reads never block a tick). It no longer does
-everything itself — two responsibilities that used to live in its 1600-line
-`.cpp` file now have their own classes:
+five-phase tick loop (events/lanes → leads/physics → cleanup/spawn →
+statistics → history capture), vehicle spawn/despawn, and state
+serialization (`state_json()`/`encode_binary_snapshot()`, each published on
+its own cadence to a lock-free snapshot so HTTP reads never block a tick).
+It no longer does everything itself — three responsibilities that used to
+live in its 1600-line `.cpp` file now have their own classes:
 
 - **`JunctionArbiter`** owns the per-tick traffic solver: MOBIL lane changes
   (`solve_lane_changes`), right-of-way at unsignalized junctions
@@ -103,14 +113,30 @@ everything itself — two responsibilities that used to live in its 1600-line
 - **`MapEditor`** owns live map editing — adding/removing junctions, roads and
   buildings, splitting a road under moving traffic while keeping every
   vehicle on it in place, retuning a road or a light.
+- **`HistoryStore`** owns playback history: one frame of the world captured
+  per REAL second (not `sim_time_`, which resets to 0 on every `load()` and
+  would let two different real moments claim the same "t" — see its own
+  header comment), written to hourly segment files under `data/history/` so
+  a client can scrub back through the last 24h without the live simulation
+  ever pausing. Delta-encodes road congestion between frames rather than
+  repeating an unchanged value every second. `reset()` — called once from
+  `start_publishing()` — deletes whatever a *previous* run of the simulator
+  left on disk first: playback history belongs to the run that produced it,
+  it does not carry across a restart.
 
-Both are handed references to the graph pointer, the vehicle fleet and the
-event controller rather than owning them (vehicle lifetime and the graph
-pointer stay `TrafficSimulator`'s call), and `TrafficSimulator`'s own methods
-of the same names become one-line forwarders — nothing calling the simulator
-today had to change. Splitting them out is a Single Responsibility Principle
-change with no behavioural difference, matching the assignment's own
-suggested split of "Simulation" into cooperating components.
+`JunctionArbiter` and `MapEditor` are handed references to the graph
+pointer, the vehicle fleet and the event controller rather than owning them
+(vehicle lifetime and the graph pointer stay `TrafficSimulator`'s call), and
+`TrafficSimulator`'s own methods of the same names become one-line
+forwarders — nothing calling the simulator today had to change. Splitting
+them out is a Single Responsibility Principle change with no behavioural
+difference, matching the assignment's own suggested split of "Simulation"
+into cooperating components. `HistoryStore` follows a looser version of the
+same idea but doesn't hold any of those references itself — it knows
+nothing about `TrafficGraph`/`Vehicle`/`TrafficController` at all;
+`tick_history_capture()` reads them and hands `HistoryStore::capture()` a
+self-contained snapshot struct instead, which is what keeps the persistence
+format decoupled from the live simulation's own types.
 
 **`TrafficController`** owns the live `TrafficEvent`s and is the Observer
 *Subject* every `Vehicle` attaches to — the simulator moves vehicles, the
@@ -137,7 +163,12 @@ traffic-density history sampled every couple of simulated seconds.
 
 **`MapLoader`** parses/writes the GeoJSON map format (nodes, roads, buildings,
 zones, signal timings) and validates an imported map before it replaces the
-running one.
+running one. It also imports directly from raw OpenStreetMap data: a real
+`highway=traffic_signals` node sits a few metres before the junction it
+governs, on the approach road, not on the junction itself, so signalizing a
+junction from OSM is a bounded walk from each signal vertex to the nearest
+real junction ahead rather than a direct id lookup — the arm the walk
+travels into is the one the signal actually controls.
 
 **`HttpServer`** (`server/WebSocketServer.hpp` — named for history, it speaks
 plain HTTP) is a small, dependency-free HTTP/1.1 server: it serves the static
@@ -265,9 +296,12 @@ classDiagram
         +tick(dt)
         +spawn_vehicle(from, to, type) string
         +state_json() string
+        +history_range_json() string
+        +history_state_at_json(seconds_ago) string
         -vehicles_ vector~unique_ptr~Vehicle~~
         -arbiter_ JunctionArbiter
         -map_editor_ MapEditor
+        -history_ HistoryStore
     }
     class TrafficController {
         +trigger_event(type, target, duration) string
@@ -285,6 +319,12 @@ classDiagram
         +remove_road(id) bool
         +set_light(node_id, on, green) bool
     }
+    class HistoryStore {
+        +capture(frame)
+        +at(seconds_ago) optional~HistoryFrame~
+        +range() Range
+        +reset()
+    }
     class StatisticsManager
     class MapLoader
     class HttpServer
@@ -294,6 +334,7 @@ classDiagram
     TrafficSimulator *-- TrafficController
     TrafficSimulator *-- JunctionArbiter
     TrafficSimulator *-- MapEditor
+    TrafficSimulator *-- HistoryStore
     TrafficSimulator *-- StatisticsManager
     TrafficSimulator "1" o-- "many" Vehicle
     TrafficSimulator --> TrafficGraph : graph_

@@ -117,3 +117,7 @@ target_link_libraries(test_signals_unit PRIVATE traffic_core)
 #History playback test================================================================
 add_executable(test_history_unit tests/unit_tests/test_history.cpp)
 target_link_libraries(test_history_unit PRIVATE traffic_core)
+
+#MOBIL lane-change test===============================================================
+add_executable(test_lane_changes_unit tests/unit_tests/test_lane_changes.cpp)
+target_link_libraries(test_lane_changes_unit PRIVATE traffic_core)

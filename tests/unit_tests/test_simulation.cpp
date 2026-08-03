@@ -860,8 +860,8 @@ TEST_CASE("landing on top of somebody is refused, and not counted") {
     CHECK_FALSE(b->rescue_to(bm));     // so `b` cannot materialise inside it
 }
 
-// Guards the exact bugs found while wiring /api/stateBin into the frontend
-// (docs/PLAN-fast-ids-and-streaming.md, Phase 3): the type byte used to check
+// Guards the exact bugs found while wiring /api/stateBin into the frontend:
+// the type byte used to check
 // for "truck"/"ambulance", which don't exist in this codebase (real types are
 // car/bus/emergency/motorbike), so those two never matched; and num_id used to
 // require the id to start with 'v', which spawn_locked's ids ("car5",
