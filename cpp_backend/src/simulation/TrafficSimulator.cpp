@@ -533,12 +533,12 @@ namespace {
 // ---------------------------------------------------------------------------
 void TrafficSimulator::start_publishing() {
     if (publishing_.exchange(true)) return;   // already running
-    // Sweeps stale segments and rebuilds the in-memory offset index from
-    // whatever survives on disk -- once per process, here, since this is
-    // already the guarded "run exactly once at boot" entry point and adding
-    // a second one just for this would be one more thing main() has to
-    // remember to call in the right order.
-    history_.load();
+    // Wipes any playback history a PRIOR run of the simulator left on disk
+    // -- once per process, here, since this is already the guarded "run
+    // exactly once at boot" entry point and adding a second one just for
+    // this would be one more thing main() has to remember to call in the
+    // right order.
+    history_.reset();
     // Detached, like the tick thread in main(): the simulator is a singleton
     // that lives as long as the process, so there is no shutdown to join at.
     std::thread(&TrafficSimulator::publish_loop, this).detach();

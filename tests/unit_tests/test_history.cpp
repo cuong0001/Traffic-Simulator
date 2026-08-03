@@ -51,7 +51,7 @@ HistoryFrame make_frame(double real_time, double sim_time) {
 TEST_CASE("capture and at() round-trip vehicles, lights, events and stats") {
     const fs::path dir = fresh_dir("uts_history_roundtrip");
     HistoryStore store(dir.string(), 86400.0);
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
 
@@ -103,7 +103,7 @@ TEST_CASE("capture and at() round-trip vehicles, lights, events and stats") {
 TEST_CASE("a delta frame carries forward unchanged roads and applies changed ones") {
     const fs::path dir = fresh_dir("uts_history_delta");
     HistoryStore store(dir.string(), 86400.0);
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
 
@@ -144,7 +144,7 @@ TEST_CASE("a delta frame carries forward unchanged roads and applies changed one
 TEST_CASE("a query spanning a segment rotation still resolves the right frame") {
     const fs::path dir = fresh_dir("uts_history_segments");
     HistoryStore store(dir.string(), 86400.0);
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
     // Segments rotate every real hour (3600s); two captures 4000s apart force
@@ -171,7 +171,7 @@ TEST_CASE("a query spanning a segment rotation still resolves the right frame") 
 TEST_CASE("eviction removes segments that have fully aged out of the window") {
     const fs::path dir = fresh_dir("uts_history_eviction");
     HistoryStore store(dir.string(), 50.0);  // a short window for a fast test
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
     // Three captures, each far enough apart (>3600s) to land in its own
@@ -195,32 +195,44 @@ TEST_CASE("eviction removes segments that have fully aged out of the window") {
     CHECK(r.newest_ago < 5.0);
 }
 
-TEST_CASE("a fresh HistoryStore reloads a previous run's data from disk") {
-    const fs::path dir = fresh_dir("uts_history_restart");
+TEST_CASE("reset() wipes a previous run's data instead of resuming it") {
+    // Every launch of the simulator gets its own playback history -- it never
+    // resumes a prior run's, even though frames ARE written to disk as they
+    // happen (crash-within-a-run resilience, not restart continuity).
+    const fs::path dir = fresh_dir("uts_history_wipe");
     const double t0 = real_now();
 
     {
         HistoryStore first_run(dir.string(), 86400.0);
-        first_run.load();
+        first_run.reset();
         HistoryFrame f = make_frame(t0 - 15.0, 42.0);
-        f.vehicles = {make_vehicle("survivor", "R9", 3.5f)};
+        f.vehicles = {make_vehicle("leftover", "R9", 3.5f)};
         first_run.capture(f);
     }  // destroyed -- simulates the process exiting
 
-    HistoryStore second_run(dir.string(), 86400.0);
-    second_run.load();  // the actual point of the test: rebuild from disk
+    std::size_t bin_files_before = 0;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (entry.path().extension() == ".bin") ++bin_files_before;
+    }
+    REQUIRE(bin_files_before > 0);  // the first run really did leave something behind
 
-    auto result = second_run.at(15.0);
-    REQUIRE(result.has_value());
-    CHECK(result->sim_time == doctest::Approx(42.0));
-    REQUIRE(result->vehicles.size() == 1);
-    CHECK(result->vehicles[0].id == "survivor");
+    HistoryStore second_run(dir.string(), 86400.0);
+    second_run.reset();  // the actual point of the test: wipe, not reload
+
+    std::size_t bin_files_after = 0;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (entry.path().extension() == ".bin") ++bin_files_after;
+    }
+    CHECK(bin_files_after == 0);
+
+    CHECK(second_run.range().empty);
+    CHECK_FALSE(second_run.at(15.0).has_value());
 }
 
 TEST_CASE("sim_time going backward across a map reload does not corrupt real-time ordering") {
     const fs::path dir = fresh_dir("uts_history_reset");
     HistoryStore store(dir.string(), 86400.0);
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
     // sim_time climbs, then drops (a load() reset), then climbs again -- but
@@ -243,7 +255,7 @@ TEST_CASE("sim_time going backward across a map reload does not corrupt real-tim
 TEST_CASE("at() clamps to the retained range instead of erroring at the edges") {
     const fs::path dir = fresh_dir("uts_history_clamp");
     HistoryStore store(dir.string(), 86400.0);
-    store.load();
+    store.reset();
 
     const double t0 = real_now();
     store.capture(make_frame(t0 - 30.0, 1.0));

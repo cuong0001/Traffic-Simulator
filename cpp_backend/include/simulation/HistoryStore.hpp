@@ -1,7 +1,11 @@
 #pragma once
-// Persistent, restart-surviving history of the simulated world, captured once
-// per REAL second so a client can scrub back through the last kWindowSeconds
-// of traffic without the live simulation ever pausing for anyone.
+// Persistent history of the simulated world within a single run, captured
+// once per REAL second so a client can scrub back through the last
+// kWindowSeconds of traffic without the live simulation ever pausing for
+// anyone. Written to disk as it happens (not just held in RAM) so a crash
+// mid-run doesn't lose everything captured before it -- but reset() wipes
+// whatever a PRIOR run left behind: every launch of the simulator starts
+// its own playback history from empty, it never resumes an old one.
 //
 // Indexed by REAL capture time ("seconds ago from now"), not sim_time_ --
 // sim_time_ resets to 0 on every TrafficSimulator::load(), so two different
@@ -105,16 +109,14 @@ struct HistoryFrame {
 // rather than each protecting themselves.
 class HistoryStore {
 public:
-    // `dir` is created if it doesn't exist. Segments already there from a
-    // previous run are picked up by load().
+    // `dir` is created if it doesn't exist.
     explicit HistoryStore(std::string dir, double window_seconds = 86400.0);
 
-    // Sweeps segments already fully outside the window (a server that was
-    // down longer than the window starts clean instead of loading files it
-    // would just immediately evict) and rebuilds the in-memory offset index
-    // from the small per-frame headers of what survives -- never full frame
-    // payloads. Call once at startup, before the first capture().
-    void load();
+    // Deletes whatever segment files are already in `dir` -- left over from a
+    // previous run of the simulator -- and starts with an empty index. Every
+    // launch gets its own playback history; it never resumes a prior run's.
+    // Call once at startup, before the first capture().
+    void reset();
 
     // Appends one frame, rotating into a new hourly segment and evicting
     // anything that just aged out of the window as needed.

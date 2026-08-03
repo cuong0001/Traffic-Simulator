@@ -241,88 +241,24 @@ HistoryStore::HistoryStore(std::string dir, double window_seconds)
     fs::create_directories(dir_, ec);
 }
 
-void HistoryStore::load() {
+void HistoryStore::reset() {
     segments_.clear();
     index_.clear();
     next_segment_index_ = 0;
     last_segment_start_ = -1.0;
     last_roads_.clear();
 
+    // Delete every segment file a PRIOR run left in this directory. Each
+    // launch gets its own playback history, never a previous run's --
+    // capture() starts from a genuinely empty store, so the first frame it
+    // writes is a fresh baseline in a brand new segment.
     std::error_code ec;
     if (!fs::exists(dir_, ec)) return;
-
-    const double cutoff = now_epoch_seconds() - window_seconds_;
-
-    std::vector<fs::path> files;
     for (const auto& entry : fs::directory_iterator(dir_, ec)) {
         if (ec) break;
         if (entry.is_regular_file() && entry.path().extension() == ".bin") {
-            files.push_back(entry.path());
-        }
-    }
-    // Filenames are "hist-<session>-<segment>.bin" with a fixed-width-free
-    // decimal session id derived from boot time, so lexical order already
-    // matches chronological order across restarts.
-    std::sort(files.begin(), files.end());
-
-    for (const auto& path : files) {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) continue;
-        SegmentFileHeader sh{};
-        in.read(reinterpret_cast<char*>(&sh), sizeof(sh));
-        // A version mismatch means the on-disk FrameHeader layout doesn't
-        // match this build's struct -- reading it as-is would misalign every
-        // field after the point they diverged. Skip it rather than corrupt
-        // the read; it's about to be pruned as stale on the next boot anyway
-        // if it's actually old, since the window rolls forward regardless.
-        if (!in || sh.magic != kMagic || sh.version != kVersion) continue;
-
-        Segment seg;
-        seg.path = path.string();
-        seg.baseline_offset = static_cast<uint64_t>(in.tellg());
-
-        std::vector<IndexEntry> found;
-        bool any = false;
-        while (true) {
-            const uint64_t frame_offset = static_cast<uint64_t>(in.tellg());
-            FrameHeader fh{};
-            in.read(reinterpret_cast<char*>(&fh), sizeof(fh));
-            if (!in || static_cast<size_t>(in.gcount()) != sizeof(fh)) break;
-            if (!any) {
-                seg.start_real_time = fh.real_time;
-                any = true;
-            }
-            seg.end_real_time = fh.real_time;
-            found.push_back({fh.real_time, segments_.size(), frame_offset});
-            in.seekg(static_cast<std::streamoff>(fh.payload_bytes), std::ios::cur);
-            if (!in) break;
-        }
-        if (!any) continue;  // empty/corrupt segment file -- ignore it
-
-        if (seg.end_real_time < cutoff) {
-            // Fully stale: a server that was down longer than the window
-            // starts clean rather than loading files it would immediately
-            // evict anyway.
             std::error_code rm_ec;
-            fs::remove(path, rm_ec);
-            continue;
-        }
-
-        for (auto& e : found) index_.push_back(e);
-        segments_.push_back(std::move(seg));
-    }
-
-    std::sort(index_.begin(), index_.end(),
-              [](const IndexEntry& a, const IndexEntry& b) { return a.real_time < b.real_time; });
-
-    if (!segments_.empty()) {
-        last_segment_start_ = segments_.back().start_real_time;
-        next_segment_index_ = segments_.size();
-        if (!index_.empty()) {
-            // Reconstruct the newest frame so capture() keeps diffing roads
-            // against reality instead of silently starting a fresh baseline.
-            auto latest = reconstruct_locked(index_.back());
-            if (latest) last_roads_ = latest->roads;
+            fs::remove(entry.path(), rm_ec);
         }
     }
 }
