@@ -113,30 +113,34 @@ build` builds all of them alongside the simulator.
 
 ## Limitations and future work
 
-**Traffic still collides and jams, despite real effort to prevent it.**
-Vehicles move on discrete lanes (`kLaneWidth = 3.5m`), not a continuous 2D
-surface — real traffic, motorbikes especially, weaves and squeezes through
-gaps a lane-locked model can't represent at all. Within a lane, following
-distance and road handovers are hard-checked against real overlap (see
-`entry_slot_free()` and `gap_between()` in `JunctionArbiter.cpp`) and
-verified collision-free at 700+ vehicles this project. **Lane changes are
-the weak point**: `solve_lane_changes()`'s MOBIL model only checks whether
-the vehicle already behind the target slot would have to brake harder than
-a comfort threshold (`kMobilSafeDecel`) — there's no equivalent of
-`entry_slot_free()`'s hard "is this slot actually clear" check gating
-`set_lane()` itself, so two vehicles evaluating a change in the same tick
-can still end up visually overlapping for a moment — confirmed live at 600
-vehicles on a real OSM import: sampling `/api/state` for 90s caught 99 such
-overlaps mid-lane-change, worst one 4.3m deep (nearly a full car length).
-Deadlocks are handled
-the same way: detected and broken (`solve_gridlock()`, `break_cycles()`,
-`rescue_to()` teleporting a stuck vehicle past the jam) rather than
-prevented outright — the existence of dedicated relief machinery is itself
-the honest signal that the underlying right-of-way model doesn't guarantee
-deadlock-free traffic on its own, only recovers from it. A continuous
-lateral-position model (real sub-lane offsets instead of a fixed lane
-index) and a hard pre-commit check on lane changes are the natural next
-steps for both.
+**Vehicles are locked to discrete lanes.** Movement is along a fixed lane
+index (`kLaneWidth = 3.5m`), not a continuous 2D surface — real traffic,
+motorbikes especially, weaves and squeezes through gaps a lane-locked model
+cannot represent at all. A continuous lateral-position model (real sub-lane
+offsets, overtaking within a lane) is the natural next step, and would also
+let the four vehicle types differ in width rather than only in length.
+
+Overlaps *between* vehicles are checked for at all three points a vehicle's
+position can change discontinuously: same-lane following and road handovers
+(`gap_between()` and `entry_slot_free()`), and lane changes
+(`solve_lane_changes()`'s slot check). That last one was added late, after
+sampling a live 600-vehicle run turned up 306 real overlaps in 90 seconds,
+the worst a full car length deep. The cause was a blind spot rather than a
+missing check: `accel_in_lane()` only looks at vehicles strictly *ahead* and
+`follower_in_lane()` only strictly *behind*, so a vehicle sitting at exactly
+the same position in the target lane — two cars side by side, which is
+precisely what a queue at a stop line produces — was invisible to both, and
+MOBIL read the lane as empty. The fix checks absolute distance, the same way
+`entry_slot_free()` already did. Re-measured under identical conditions:
+**306 overlaps → 0**.
+
+**Deadlocks are recovered from, not prevented.** `solve_gridlock()`,
+`break_cycles()` and `rescue_to()` (which teleports a hopelessly stuck
+vehicle forward along its route) detect and break jams after they form. The
+existence of dedicated relief machinery is itself the honest signal that the
+underlying right-of-way model doesn't guarantee deadlock-free traffic on its
+own. Congestion still builds under heavy load, which is realistic; genuine
+deadlock is rarer but is handled reactively.
 
 **The simulation doesn't scale to an arbitrarily large city or fleet.**
 The whole tick loop runs on one background thread — physics, routing and
