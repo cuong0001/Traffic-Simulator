@@ -14,12 +14,26 @@
 #include <cmath>
 
 namespace {
-// Intelligent Driver Model constants (Treiber et al.).
-constexpr double kIdmT = 0.25;             // desired safe time headway (s) for tight urban platoons
-constexpr double kIdmS0 = 1.0;              // minimum standstill gap (m)
+// Intelligent Driver Model constants (Treiber et al.). Tuned tighter than a
+// textbook value on purpose: this sim reads as dense urban traffic, where
+// drivers hold a much closer cushion than open-road IDM defaults assume.
+// Retuned twice now (1.0/0.25 -> 0.5/0.15 -> this) after screenshots showed
+// the previous pass still reading as too loose at a glance.
+constexpr double kIdmT = 0.05;             // desired safe time headway (s) for tight urban platoons
+constexpr double kIdmS0 = 0.25;             // minimum standstill gap (m)
 constexpr double kIdmA = 2.5;              // comfortable acceleration (m/s^2)
 constexpr double kIdmB = 3.0;              // comfortable deceleration (m/s^2)
-constexpr double kContactMargin = 0.25;    // m kept between bumpers
+
+// Dense-urban "tuck in" behaviour. Textbook IDM only ever REACTS to a gap
+// that is already tight: once a follower matches its leader's speed with room
+// to spare, both terms of the acceleration go to zero and the gap freezes at
+// whatever spawn timing happened to produce. Real traffic in a dense city
+// closes that gap simply because it is there. These bound when that applies.
+constexpr double kCloseUpHorizon = 20.0;     // m: only tuck in behind a leader in sight
+constexpr double kCloseUpMargin = 1.5;       // x s_star: slack needed before bothering
+constexpr double kCloseUpBoost = 1.15;       // free-flow ceiling multiplier while closing
+constexpr double kCloseUpMinLeadSpeed = 2.0; // m/s: never chase a stopped "leader"
+constexpr double kContactMargin = 0.15;    // m kept between bumpers -- stays under kIdmS0
 constexpr double kLightLookahead = 80.0;   // m before a stop line we start looking
 constexpr double kAmberComfortDecel = 3.0; // amber dilemma-zone threshold (m/s^2)
 constexpr double kLateralSpeed = 2.0;      // m/s of sideways drift on a lane change
@@ -38,13 +52,20 @@ constexpr double kStuckSpeed = 0.3;          // m/s below which we count as stop
 // an empty road ahead and both hand over onto it in the same tick. This check
 // keeps the second one out: it runs during the move loop, so it sees whoever
 // already claimed the slot.
+//
+// position_on_road is the vehicle's CENTRE everywhere else in the codebase --
+// gap_between() in JunctionArbiter.cpp, which drives the live following gap,
+// requires half of BOTH vehicles' lengths for exactly that reason. This used
+// to require only one vehicle's full length, picked by which side of `entry`
+// it was on; that gives the right answer only when both vehicles happen to be
+// the same length, and under-counts the required clearance by up to half the
+// length difference otherwise -- confirmed live as a car and a bus landing
+// 0.75m into each other at a handover.
 bool entry_slot_free(const Road& road, int lane, double entry, double len) {
     for (const Vehicle* o : road.vehicles) {
         if (!o || o->lane != lane) continue;
         const double d = o->position_on_road - entry;
-        // d >= 0: the other vehicle is in front, so its length is what matters.
-        // d <  0: it is behind, so ours is.
-        const double needed = (d >= 0.0 ? o->length_meters() : len) + kContactMargin;
+        const double needed = 0.5 * (o->length_meters() + len) + kContactMargin;
         if (std::abs(d) < needed) return false;
     }
     return true;
@@ -115,7 +136,23 @@ double Vehicle::idm_accel(double v, double v0, double v_lead, double gap) {
     const double delta_v = v - v_lead;
     const double sqrt_ab = 2.0 * std::sqrt(kIdmA * kIdmB);
     const double s_star = kIdmS0 + std::max(0.0, v * kIdmT + (v * delta_v) / sqrt_ab);
-    double a = kIdmA * (1.0 - std::pow(v / v0, 4) - std::pow(s_star / gap, 2));
+
+    // Raise the free-flow ceiling while there is slack worth taking up, so a
+    // vehicle that has already matched its leader's speed still drifts closer
+    // instead of holding a gap nothing is asking it to hold. Only the ceiling
+    // moves -- the (s_star / gap)^2 braking term below is untouched and still
+    // takes over as the gap closes, so IDM's collision safety is inherited.
+    //
+    // The v_lead guard is what keeps this from being dangerous: advance()
+    // calls in here with v_lead = 0 and a VIRTUAL gap to the stop line when
+    // braking for a red light, and a genuinely stopped leader looks the same.
+    // Chasing either would accelerate a vehicle at the thing it must stop for.
+    double v0_eff = v0;
+    if (v_lead > kCloseUpMinLeadSpeed &&
+        gap < kCloseUpHorizon && gap > s_star * kCloseUpMargin) {
+        v0_eff = v0 * kCloseUpBoost;
+    }
+    double a = kIdmA * (1.0 - std::pow(v / v0_eff, 4) - std::pow(s_star / gap, 2));
 
     // Crisp launch: when accelerating from low speed into a clear gap,
     // apply full acceleration instead of lingering.

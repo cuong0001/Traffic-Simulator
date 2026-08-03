@@ -172,6 +172,147 @@ TEST_CASE("advance() never moves a vehicle through the one in front") {
     CHECK(worst >= 0.0);
 }
 
+TEST_CASE("advance() settles to the tighter standstill gap") {
+    TestNet net;
+    Road* r = net.road("R1");
+
+    auto leader = VehicleFactory::create("car", "leader");
+    auto follower = VehicleFactory::create("car", "follower");
+
+    leader->current_road = r;
+    leader->position_on_road = 60.0;
+    r->add_vehicle(leader.get());
+
+    follower->current_road = r;
+    follower->position_on_road = 0.0;
+    follower->current_speed = 14.0;
+    r->add_vehicle(follower.get());
+
+    double gap = 0.0;
+    for (int i = 0; i < 800; ++i) {
+        leader->current_speed = 0.0;  // a wall
+        gap = leader->position_on_road - follower->position_on_road
+            - leader->length_meters();
+        follower->advance(0.1, leader.get(), gap, i * 0.1);
+    }
+    // Pins the retuned standstill gap (kIdmS0 = 0.25 m, was 0.5 m, was 1.0 m
+    // originally): the follower must be essentially stopped and settled
+    // comfortably below the earlier values, so a regression back toward
+    // either fails this bound.
+    CHECK(follower->get_current_speed() < 0.2);
+    CHECK(gap > 0.1);
+    CHECK(gap < 0.45);
+}
+
+TEST_CASE("idm_accel settles to the tighter moving headway") {
+    // Exercises kIdmT directly via the public static formula, rather than
+    // through a Road/Vehicle whose speed cap could itself bind and mask the
+    // headway term. v0 is set far out of reach so (v/v0)^4 stays negligible
+    // and the fixed point is governed by the gap term alone.
+    const double v0 = 100.0;
+    const double v_lead = 15.0;
+    double v = 15.0;
+    double gap = 3.0;  // starts below the eventual equilibrium
+    const double dt = 0.05;
+    for (int i = 0; i < 2000; ++i) {
+        const double a = Vehicle::idm_accel(v, v0, v_lead, gap);
+        v = std::max(0.0, v + a * dt);
+        gap += (v_lead - v) * dt;
+    }
+    // Pins the retuned headway (kIdmS0 + v*kIdmT = 0.25 + 15*0.05 = 1.0 m).
+    // Both earlier constant sets (0.5 + 15*0.15 = 2.75 m, and the original
+    // 1.0 + 15*0.25 = 4.75 m) fall well outside this range, so a regression
+    // to either is caught.
+    CHECK(gap > 0.8);
+    CHECK(gap < 1.25);
+}
+
+// Plain IDM, without the dense-urban close-up boost. The tests below use this
+// to assert the boost is NOT applied, rather than hard-coding a number that
+// would silently stop meaning anything if the other constants move.
+static double plain_idm_accel(double v, double v0, double v_lead, double gap) {
+    const double kA = 2.5, kB = 3.0, kS0 = 0.25, kT = 0.05;
+    v0 = std::max(0.5, v0);
+    gap = std::max(0.1, gap);
+    const double s_star =
+        kS0 + std::max(0.0, v * kT + (v * (v - v_lead)) / (2.0 * std::sqrt(kA * kB)));
+    return kA * (1.0 - std::pow(v / v0, 4) - std::pow(s_star / gap, 2));
+}
+
+TEST_CASE("idm_accel closes a slack gap behind a moving leader") {
+    // Matched speeds at the free-flow limit with room to spare. Textbook IDM
+    // gives a == 0 here -- both terms vanish -- and the gap would stay frozen
+    // wherever spawn timing left it.
+    const double v = 10.0, v0 = 10.0, v_lead = 10.0, gap = 10.0;
+    CHECK(plain_idm_accel(v, v0, v_lead, gap) == doctest::Approx(0.0).epsilon(0.02));
+    CHECK(Vehicle::idm_accel(v, v0, v_lead, gap) > 0.05);
+}
+
+TEST_CASE("idm_accel does not chase a stopped leader") {
+    // Same geometry as above, but the leader is stopped -- which is also what
+    // advance() passes when braking for a red light (v_lead = 0 and a virtual
+    // gap to the stop line). Accelerating here would drive at the stop line.
+    const double v = 10.0, v0 = 10.0, gap = 10.0;
+    CHECK(Vehicle::idm_accel(v, v0, 0.0, gap)
+          == doctest::Approx(plain_idm_accel(v, v0, 0.0, gap)));
+    // Still true just under the guard, where the horizon and margin conditions
+    // are otherwise satisfied -- so it is the lead-speed guard doing the work.
+    CHECK(Vehicle::idm_accel(v, v0, 1.5, gap)
+          == doctest::Approx(plain_idm_accel(v, v0, 1.5, gap)));
+}
+
+TEST_CASE("idm_accel does not close a gap beyond the horizon") {
+    // A lone vehicle must not accelerate hunting for someone to catch up to.
+    const double v = 10.0, v0 = 10.0, v_lead = 10.0;
+    CHECK(Vehicle::idm_accel(v, v0, v_lead, 40.0)
+          == doctest::Approx(plain_idm_accel(v, v0, v_lead, 40.0)));
+    CHECK(Vehicle::idm_accel(v, v0, v_lead, 1e9)
+          == doctest::Approx(plain_idm_accel(v, v0, v_lead, 1e9)));
+}
+
+TEST_CASE("advance() actually shrinks a slack gap over time") {
+    TestNet net;
+    Road* r = net.road("R1");
+    // Slow enough that both vehicles stay on the 100 m road for the whole run.
+    r->set_speed_limit(15.0);
+
+    auto leader = VehicleFactory::create("car", "leader");
+    auto follower = VehicleFactory::create("car", "follower");
+
+    leader->current_road = r;
+    leader->position_on_road = 20.0;
+    r->add_vehicle(leader.get());
+
+    follower->current_road = r;
+    follower->position_on_road = 10.0;
+    r->add_vehicle(follower.get());
+
+    // Both already at the follower's own free-flow speed, so plain IDM has
+    // nothing left to do: (v/v0)^4 is 1 and the gap term is negligible, which
+    // is exactly the frozen-gap case this change exists to fix.
+    const double cruise = follower->desired_speed_on(*r);
+    follower->current_speed = cruise;
+
+    const double start_gap = leader->position_on_road - follower->position_on_road
+                           - leader->length_meters();
+    for (int i = 0; i < 150; ++i) {
+        // A leader holding a steady speed, driven by hand so this measures the
+        // follower's own behaviour rather than a two-body interaction.
+        leader->current_speed = cruise;
+        leader->position_on_road += cruise * 0.1;
+        const double gap = leader->position_on_road - follower->position_on_road
+                         - leader->length_meters();
+        follower->advance(0.1, leader.get(), gap, i * 0.1);
+    }
+    const double gap = leader->position_on_road - follower->position_on_road
+                     - leader->length_meters();
+
+    // The gap must actually have closed -- this is the behaviour the whole
+    // change exists for -- without the follower driving into the leader.
+    CHECK(gap < start_gap - 1.0);
+    CHECK(gap > 0.0);
+}
+
 TEST_CASE("advance() hands over to the next road and records the trip") {
     TestNet net;
     auto v = VehicleFactory::create("car", "v1");
@@ -206,6 +347,30 @@ TEST_CASE("advance() refuses to enter a slot another vehicle already holds") {
 
     // It must stay on R1, parked at the stop line, instead of landing on top
     // of the blocker.
+    CHECK(v->get_current_road()->id == "R1");
+    CHECK(v->get_position_on_road() == doctest::Approx(net.road("R1")->length));
+    CHECK(v->get_current_speed() == doctest::Approx(0.0));
+}
+
+TEST_CASE("advance() refuses a handover the old length check would have allowed") {
+    TestNet net;
+    // A car stopped a few metres into R2. The old entry_slot_free() only
+    // weighed the STOPPED car's own length here (4.5 + 0.25 = 4.75m needed);
+    // a much longer bus handing over from R1 would have passed that bar and
+    // landed with its rear end still inside the car.
+    auto blocker = VehicleFactory::create("car", "blocker");
+    blocker->current_road = net.road("R2");
+    blocker->position_on_road = 6.0;
+    net.road("R2")->add_vehicle(blocker.get());
+
+    auto v = VehicleFactory::create("bus", "v1");
+    v->request_route(&net.graph, net.node("A"), net.node("C"));
+    v->position_on_road = net.road("R1")->length - 0.01;
+    v->current_speed = 10.0;
+
+    v->advance(0.1, nullptr, 1e9, 0.0);
+
+    // Must be held at R1's stop line, not overlapping the blocker.
     CHECK(v->get_current_road()->id == "R1");
     CHECK(v->get_position_on_road() == doctest::Approx(net.road("R1")->length));
     CHECK(v->get_current_speed() == doctest::Approx(0.0));
