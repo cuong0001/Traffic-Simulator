@@ -47,12 +47,6 @@ traffic keeps moving:
   auto-spawn (below) is on.
 - **Max veh** — a cap on how many vehicles exist at once; 0 means
   unlimited. Type a number and hit **Set**.
-- **Give way at** — how many metres before an unsignalized junction a
-  driver starts deciding whether to yield. Smaller reads as more
-  realistic (a real driver commits close to the junction, not a block
-  away); the default is derived from the loaded map's own block size, so
-  it re-derives itself sensibly on a different city rather than carrying
-  a stale value over.
 - **Routing** — A*, Dijkstra or BFS, applied to every vehicle spawned
   from here on (to retarget an existing vehicle's algorithm, see
   `Modify Vehicles` in §5). See
@@ -74,8 +68,11 @@ on the map; click the `×` on that card, or click empty ground, to clear the
 selection.
 
 Traffic lights show red/amber/green per the OSM data a city was imported
-with (§7) or per lights you place yourself (§5); a junction with no light
-falls back to give-way arbitration per §3's "Give way at" setting.
+with (§7) or per lights you place yourself (§5). A junction with no light
+falls back to give-way arbitration: drivers negotiate right of way among
+themselves, starting a set distance out that the simulator derives from the
+loaded map's own block size (tunable over the API via
+`/api/junctionApproach`, but not exposed in the UI).
 
 ## 5. Editing the map live
 

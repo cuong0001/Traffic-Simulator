@@ -28,7 +28,7 @@ export const Sprites = (() => {
         "car-3": "car-yellow.png",
         "car-4": "car-pink.png",
         "emergency-1": "ambulance-yes.png",
-        "bus-1": "firetruck-yes.png",
+        "bus-1": "bus.png",
         // signal heads, indexed by the state the backend reports (0/1/2)
         "light-0": "trafficlight-red.png",
         "light-1": "trafficlight-yellow.png",

@@ -4,8 +4,7 @@ This document describes the C++ simulation engine in `cpp_backend/`, organised
 by the five component categories the assignment brief asks for (§7: Graph,
 Vehicle, Algorithm, Simulation, Utility), and the design pattern each class
 demonstrates. It reflects the code as it stands after the full OOP hardening
-pass (RAII ownership, encapsulation, and the `TrafficSimulator` split) — see
-`docs/PLAN-oop-hardening.md` for the reasoning behind each change.
+pass: RAII ownership, encapsulation, and the `TrafficSimulator` split.
 
 ## Graph component
 

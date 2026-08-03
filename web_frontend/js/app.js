@@ -771,7 +771,7 @@ function placeOnRoad(roadId, pos, lane = 0, lat = 0) {
 // below, polled on its own, faster, tick-synced cadence: state_json() is only
 // rebuilt every ~100ms (see TrafficSimulator::publish_loop), so tying vehicle
 // motion to it is what made rendering feel stale even after a faster wire
-// format existed. See docs/PLAN-fast-ids-and-streaming.md, Phase 3.
+// format existed.
 function applyState(s) {
   simState = s;
   lightState = {};
@@ -787,8 +787,8 @@ function applyState(s) {
 
 // applyState() above does NOT move vehicles -- live vehicle rendering reads
 // snapPrev/snapCur, populated only by applyBinaryState() from /api/stateBin.
-// History has no binary snapshot (a JSON vehicles array is enough at a 1/s
-// cadence, see docs/PR-history-playback.md), so this is the JSON-native
+// History has no binary snapshot (a JSON vehicles array is enough at its 1/s
+// capture cadence), so this is the JSON-native
 // equivalent of applyBinaryState()'s tail: place each vehicle with the same
 // placeOnRoad() the live path uses, then publish it as BOTH snapPrev and
 // snapCur (same object) so interpolatedVehicles() sees "no previous sample"
@@ -1388,7 +1388,7 @@ async function pollBinary() {
   // an independent tick timer. Speed still shrinks the interval because a
   // smaller interpDelay (below) is less perceptible lag when more simulated
   // distance passes between two samples. Worth re-measuring rather than
-  // trusting this guess long-term (see docs/PLAN-fast-ids-and-streaming.md).
+  // trusting this guess long-term.
   const spd = Math.max(1, simState ? simState.speed || 1 : 1);
   pollInterval = Math.max(25, Math.min(50, Math.round(50 / spd)));
   interpDelay = Math.max(35, pollInterval * 1.25);
