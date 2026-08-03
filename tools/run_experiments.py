@@ -104,7 +104,7 @@ def warm_up(base, sc, poll):
     time.sleep(20)  # let the jam pattern settle
 
 
-def run_one(base, sc, algo, sim_seconds, poll):
+def run_one(base, sc, algo, sim_seconds, poll, cost_mode):
     api_get(base, "/api/clearVehicles")
     api_get(base, "/api/speed", {"x": str(SPEED)})
     api_get(base, "/api/auto", {"on": "1"})
@@ -114,6 +114,7 @@ def run_one(base, sc, algo, sim_seconds, poll):
     if sc["closure"]:
         api_get(base, "/api/event", {"type": "closure"})
     api_get(base, "/api/algorithm", {"name": algo})
+    api_get(base, "/api/costMode", {"mode": cost_mode})
 
     warm_up(base, sc, poll)
 
@@ -239,7 +240,7 @@ def fmt(val, rng, show_range):
     return str(val)
 
 
-def write_report(agg_rows, charts_ok, run_id, ts_header, repeats):
+def write_report(agg_rows, charts_ok, run_id, ts_header, repeats, cost_mode):
     show_range = repeats > 1
     table_lines = [
         "| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp |",
@@ -269,7 +270,7 @@ def write_report(agg_rows, charts_ok, run_id, ts_header, repeats):
     reps_note = f" ({repeats} repeats per combo, mean ± range)" if repeats > 1 else ""
     section = f"""## {ts_header}
 
-Four scenarios x three algorithms{reps_note}; each run advanced {SIM_SECONDS} s of simulated time (x{SPEED} speed) after a warm-up. Closure picks a random road each run.
+Four scenarios x three algorithms{reps_note}; each run advanced {SIM_SECONDS} s of simulated time (x{SPEED} speed) after a warm-up, routing by {cost_mode} cost. Closure picks a random road each run.
 
 ### Results
 
@@ -302,6 +303,8 @@ def main():
     p.add_argument("--repeats", type=int, default=3,
                    help="repeats per scenario x algorithm combo")
     p.add_argument("--smoke", action="store_true", help="quick 1-run check")
+    p.add_argument("--cost-mode", choices=["time", "distance"], default="time",
+                   help="what routes minimise (default: time)")
     args = p.parse_args()
 
     base = f"http://{args.host}:{args.port}"
@@ -328,7 +331,7 @@ def main():
     for i, (sc, algo, secs, rep) in enumerate(runs, 1):
         rep_str = f" ({rep}/{repeats})" if repeats > 1 else ""
         print(f"[{i}/{len(runs)}] {sc['key']} / {algo}{rep_str} ...", end=" ", flush=True)
-        row = run_one(base, sc, algo, secs, args.poll_interval)
+        row = run_one(base, sc, algo, secs, args.poll_interval, args.cost_mode)
         row["repeat"] = rep
         raw_rows.append(row)
         print(f"trips/min={row['trips_per_sim_min']}  nodes={row['avg_nodes_per_recompute']}  "
@@ -346,7 +349,7 @@ def main():
     if charts_ok:
         print("wrote 5 charts in docs/")
 
-    write_report(agg_rows, charts_ok, run_id, ts_header, repeats)
+    write_report(agg_rows, charts_ok, run_id, ts_header, repeats, args.cost_mode)
     print(f"appended to {REPORT_MD}")
     return 0
 

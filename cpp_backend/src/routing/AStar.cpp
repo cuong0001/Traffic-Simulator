@@ -25,7 +25,14 @@
 double AStar::heuristic(Intersection* a, Intersection* b) {
     double dx = a->x - b->x;
     double dy = a->y - b->y;
-    return std::sqrt(dx * dx + dy * dy);
+    double h = std::sqrt(dx * dx + dy * dy);
+    // For Time mode, the admissible bound is "shortest possible time":
+    // straight-line distance over the fastest speed any road allows. Without
+    // this, h can overestimate and A* stops being optimal. Distance mode
+    // keeps the plain Euclidean distance.
+    if (cost_mode_ == CostMode::Time && max_speed_ms_ > 0.0)
+        h /= max_speed_ms_;
+    return h;
 }
 
 std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
@@ -35,6 +42,7 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
     g_score.clear();
     f_score.clear();
     prev.clear();
+    node_of.clear();
     while (!pq.empty()) pq.pop();
     nodes_explored_ = 0;
 
@@ -46,7 +54,18 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
     if (start_id == end_id)
         return { graph.intersections.at(start_id).get() };
 
+    // In Time mode the admissible heuristic is distance / fastest speed on
+    // the map. Recompute the max speed once per query so it stays fresh after
+    // live map edits; a tight no-allocation loop is negligible next to the
+    // search itself.
+    if (cost_mode_ == CostMode::Time) {
+        max_speed_ms_ = 0.0;
+        for (const auto& [id, road] : graph.edges)
+            if (road) max_speed_ms_ = std::max(max_speed_ms_, road->speed_limit_ms());
+    }
+
     init_scores(graph, start_id, end_id);
+    Intersection* goal = graph.intersections.at(end_id).get();
 
     while (!pq.empty()) {
         auto [f, current_name] = pq.top();
@@ -67,13 +86,16 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
         for (Road* road : current->outgoing_edges) {
             if (road->is_closed()) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
-            double tentative_g = g_score[current_name] + road->get_weight();
+            double tentative_g = g_score[current_name] + road->cost(cost_mode_);
 
-            if (tentative_g < g_score[neighbour->name]) {
+            // find() rather than operator[]: an id we have never reached is
+            // absent from g_score, which is exactly "cost so far infinity".
+            auto it = g_score.find(neighbour->name);
+            if (it == g_score.end() || tentative_g < it->second) {
                 prev[neighbour->name] = current;
+                node_of[neighbour->name] = neighbour;
                 g_score[neighbour->name] = tentative_g;
-                f_score[neighbour->name] = tentative_g +
-                    heuristic(neighbour, graph.intersections.at(end_id).get());
+                f_score[neighbour->name] = tentative_g + heuristic(neighbour, goal);
                 pq.push({ f_score[neighbour->name], neighbour->name });
             }
         }
@@ -85,36 +107,24 @@ std::vector<Intersection*> AStar::find_path(const TrafficGraph& graph,
 void AStar::init_scores(const TrafficGraph& graph,
                         const std::string& start_id,
                         const std::string& end_id) {
+    // Lazy init: "absent from g_score" already means infinity, so there is no
+    // reason to write 2617 infinities before a search that settles a few
+    // hundred nodes.
     Intersection* goal = graph.intersections.at(end_id).get();
-
-    for (auto& [name, node] : graph.intersections) {
-        g_score[name] = std::numeric_limits<double>::infinity();
-        f_score[name] = std::numeric_limits<double>::infinity();
-        prev[name] = nullptr;
-    }
+    Intersection* start = graph.intersections.at(start_id).get();
 
     g_score[start_id] = 0.0;
-    f_score[start_id] = heuristic(graph.intersections.at(start_id).get(), goal);
+    f_score[start_id] = heuristic(start, goal);
+    prev[start_id] = nullptr;
+    node_of[start_id] = start;
     pq.push({ f_score[start_id], start_id });
 }
 
 std::vector<Intersection*> AStar::reconstruct_path(const std::string& start_id,
                                                const std::string& end_id) {
-    std::unordered_map<std::string, Intersection*> node_of;
-
-    for (auto& [child_name, parent_ptr] : prev) {
-        if (parent_ptr != nullptr) {
-            node_of[parent_ptr->name] = parent_ptr;
-
-            for (Road* road : parent_ptr->outgoing_edges) {
-                if (road->target->name == child_name) {
-                    node_of[child_name] = road->target;
-                    break;
-                }
-            }
-        }
-    }
-
+    // node_of was filled during relaxation, so the path is just a walk back.
+    // The old version scanned the whole prev map and every parent's outgoing
+    // edges to rebuild information it was already holding.
     std::vector<Intersection*> path;
     std::string cur = end_id;
 
@@ -127,7 +137,10 @@ std::vector<Intersection*> AStar::reconstruct_path(const std::string& start_id,
         if (cur == start_id)
             break;
 
-        cur = prev[cur]->name;
+        auto pit = prev.find(cur);
+        if (pit == prev.end() || pit->second == nullptr)
+            return {};
+        cur = pit->second->name;
     }
 
     std::reverse(path.begin(), path.end());

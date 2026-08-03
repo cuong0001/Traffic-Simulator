@@ -290,6 +290,7 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     std::unique_ptr<Vehicle> owned = VehicleFactory::create(type, id);
     Vehicle* v = owned.get();
     v->set_algorithm(algorithm_);
+    v->set_cost_mode(cost_mode_);
     const auto t0 = std::chrono::steady_clock::now();
     v->request_route(graph_, fit->second.get(), tit->second.get());
     const double micros = std::chrono::duration<double, std::micro>(
@@ -672,6 +673,12 @@ bool TrafficSimulator::set_algorithm(const std::string& name) {
     std::lock_guard<std::mutex> lock(mtx_);
     algorithm_ = name;
     return true;
+}
+
+void TrafficSimulator::set_cost_mode(CostMode mode) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    cost_mode_ = mode;
+    for (auto& v : vehicles_) v->set_cost_mode(mode);
 }
 
 // vehicle operations

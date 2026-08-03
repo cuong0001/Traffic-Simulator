@@ -75,6 +75,10 @@ void Vehicle::set_algorithm(const std::string& name) {
     router_ = make_router(name);
 }
 
+void Vehicle::set_cost_mode(CostMode mode) {
+    if (router_) router_->set_cost_mode(mode);
+}
+
 Vehicle::Vehicle(std::string id, double max_speed, double max_accel, double max_decel)
     : id(id), current_road(nullptr), position_on_road(0.0), current_speed(0.0),
       destination_(nullptr), max_speed_(max_speed), accel_(0.0), max_accel_(max_accel),

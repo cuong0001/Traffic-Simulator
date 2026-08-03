@@ -20,6 +20,7 @@ private:
     std::queue<Intersection*> front;
     std::unordered_set<std::string> visited;
     std::unordered_map<std::string, Intersection*> prev;
+    std::unordered_map<std::string, Intersection*> node_of;
     std::vector<Intersection*> reconstruct_path(const std::string& start_id,
                                          const std::string& end_id);
 };

@@ -28,6 +28,8 @@ would change what the second one sees inside the same tick.
 #include <vector>
 #include <unordered_map>
 
+#include "core/Road.hpp"
+
 // Road-relative, not world-space: this mirrors the per-vehicle fields
 // state_json() already sends (road/pos/lane/lat/speed/type), just packed as
 // fixed-size binary instead of formatted JSON. The frontend's placeOnRoad()
@@ -125,6 +127,9 @@ public:
     double junction_approach() const;
     // Routing strategy used by new vehicles: "astar" | "dijkstra" | "bfs".
     bool set_algorithm(const std::string& name);
+    // What routes minimise ("distance" | "time"), applied to existing and
+    // future vehicles.
+    void set_cost_mode(CostMode mode);
 
     // live snapshot binary streaming. Locks internally and rebuilds the buffer
     // on the spot -- fine for a direct caller (tests, or a one-off fallback
@@ -248,6 +253,7 @@ private:
     int target_vehicles_ = 120;     // 0 = unlimited
     double spawn_rate_ = 1.0;       // vehicles per second when auto-spawning
     std::string algorithm_ = "dijkstra";
+    CostMode cost_mode_ = CostMode::Time;
 
     // ---- published state snapshot ------------------------------------------
     void publish_loop();                        ///< publisher thread body

@@ -15,6 +15,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     while (!front.empty()) front.pop();
     visited.clear();
     prev.clear();
+    node_of.clear();
     nodes_explored_ = 0;
 
     auto start_it = graph.intersections.find(start_id);
@@ -27,7 +28,8 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     // Seed the BFS
     front.push(start_node);
     visited.insert(start_id);
-    prev[start_id] = nullptr;          
+    prev[start_id] = nullptr;
+    node_of[start_id] = start_node;
 
     while (!front.empty()) {
         Intersection* current = front.front();
@@ -46,6 +48,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
             if (visited.find(neighbour->name) == visited.end()) {
                 visited.insert(neighbour->name);
                 prev[neighbour->name] = current;   // record parent
+                node_of[neighbour->name] = neighbour;
                 front.push(neighbour);
             }
         }
@@ -57,23 +60,9 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
 
 std::vector<Intersection*> BFS::reconstruct_path(const std::string& start_id,
                                           const std::string& end_id) {
-    std::unordered_map<std::string, Intersection*> node_of;
-
-    for (auto& [child_name, parent_ptr] : prev) {
-        if (parent_ptr != nullptr) {
-            // The child Intersection* lives in the parent's outgoing edges
-            for (Road* road : parent_ptr->outgoing_edges) {
-                if (road->target->name == child_name) {
-                    node_of[child_name] = road->target;
-                    break;
-                }
-            }
-            // Also register the parent itself
-            node_of[parent_ptr->name] = parent_ptr;
-        }
-    }
-
-    // Walk backwards from end to start using the prev chain to trace the bfs path
+    // node_of was filled during expansion, so the path is just a walk back.
+    // The old version scanned the whole prev map and every parent's outgoing
+    // edges to rebuild information it was already holding.
     std::vector<Intersection*> path;
     std::string cur = end_id;
 
@@ -86,7 +75,10 @@ std::vector<Intersection*> BFS::reconstruct_path(const std::string& start_id,
         if (cur == start_id)
             break;
 
-        cur = prev[cur]->name;
+        auto pit = prev.find(cur);
+        if (pit == prev.end() || pit->second == nullptr)
+            return {};
+        cur = pit->second->name;
     }
 
     std::reverse(path.begin(), path.end());
