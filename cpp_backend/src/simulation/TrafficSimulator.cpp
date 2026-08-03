@@ -5,6 +5,7 @@
 #include <thread>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <unordered_map>
 #include <filesystem>
 #include <sstream>
@@ -297,37 +298,43 @@ std::string TrafficSimulator::spawn_locked(const std::string& from, const std::s
     if (v->get_route().empty()) {  // unreachable
         return "";
     }
-    // request_route() already put v on its first road. Pick the best allowed lane
-    // with the clearest entrance gap to distribute traffic across available lanes.
+    // request_route() already put v on its first road. Spread spawns across
+    // every allowed lane whose entrance is clear, preferring whichever is
+    // least occupied so multi-lane roads actually get used as multi-lane.
+    //
+    // The previous rule kept the candidate with the largest "clearest gap
+    // ahead" (min_pos), initialised to 1e9 and compared with a strict `>`. On
+    // an empty or lightly used road every lane ties at exactly 1e9, so the
+    // first candidate always won -- every vehicle in the city spawned in
+    // lane 0, and because MOBIL only moves a vehicle that is actually held
+    // up, it stayed there. A 3-lane road ran as a 1-lane road.
     if (Road* first = v->current_road) {
         const std::vector<int> ok = v->allowed_lanes(first->get_lanes());
-        int best_lane = v->lane;
-        double best_gap = -1.0;
         const double needed = v->length_meters() + kSpawnClearance;
+
+        std::vector<int> best_lanes;
+        std::size_t fewest = std::numeric_limits<std::size_t>::max();
 
         for (int l : ok) {
             bool slot_ok = true;
-            double min_pos = 1e9;
+            std::size_t occupants = 0;
             for (Vehicle* o : first->vehicles) {
                 if (o == v || o->lane != l) continue;
-                if (o->position_on_road < needed) {
-                    slot_ok = false;
-                    break;
-                }
-                if (o->position_on_road < min_pos) min_pos = o->position_on_road;
+                ++occupants;
+                if (o->position_on_road < needed) { slot_ok = false; break; }
             }
-            if (slot_ok && min_pos > best_gap) {
-                best_gap = min_pos;
-                best_lane = l;
-            }
+            if (!slot_ok) continue;
+            if (occupants < fewest) { fewest = occupants; best_lanes.clear(); }
+            if (occupants == fewest) best_lanes.push_back(l);
         }
 
-        if (best_gap < 0.0) {  // All allowed lanes blocked at entrance
+        if (best_lanes.empty()) {  // every allowed lane blocked at the entrance
             first->remove_vehicle(v);
             return "";
         }
 
-        v->lane = best_lane;
+        std::uniform_int_distribution<std::size_t> pick(0, best_lanes.size() - 1);
+        v->lane = best_lanes[pick(rng_)];
     }
     controller_.attach(v);  // Observer: v now hears about events
     vehicles_.push_back(std::move(owned));
