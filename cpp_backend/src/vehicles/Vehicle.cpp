@@ -14,9 +14,11 @@
 #include <cmath>
 
 namespace {
-// Intelligent Driver Model constants (Treiber et al.).
-constexpr double kIdmT = 0.25;             // desired safe time headway (s) for tight urban platoons
-constexpr double kIdmS0 = 1.0;              // minimum standstill gap (m)
+// Intelligent Driver Model constants (Treiber et al.). Tuned tighter than a
+// textbook value on purpose: this sim reads as dense urban traffic, where
+// drivers hold a much closer cushion than open-road IDM defaults assume.
+constexpr double kIdmT = 0.15;             // desired safe time headway (s) for tight urban platoons
+constexpr double kIdmS0 = 0.5;              // minimum standstill gap (m)
 constexpr double kIdmA = 2.5;              // comfortable acceleration (m/s^2)
 constexpr double kIdmB = 3.0;              // comfortable deceleration (m/s^2)
 constexpr double kContactMargin = 0.25;    // m kept between bumpers

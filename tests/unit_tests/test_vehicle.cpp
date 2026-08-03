@@ -172,6 +172,59 @@ TEST_CASE("advance() never moves a vehicle through the one in front") {
     CHECK(worst >= 0.0);
 }
 
+TEST_CASE("advance() settles to the tighter standstill gap") {
+    TestNet net;
+    Road* r = net.road("R1");
+
+    auto leader = VehicleFactory::create("car", "leader");
+    auto follower = VehicleFactory::create("car", "follower");
+
+    leader->current_road = r;
+    leader->position_on_road = 60.0;
+    r->add_vehicle(leader.get());
+
+    follower->current_road = r;
+    follower->position_on_road = 0.0;
+    follower->current_speed = 14.0;
+    r->add_vehicle(follower.get());
+
+    double gap = 0.0;
+    for (int i = 0; i < 800; ++i) {
+        leader->current_speed = 0.0;  // a wall
+        gap = leader->position_on_road - follower->position_on_road
+            - leader->length_meters();
+        follower->advance(0.1, leader.get(), gap, i * 0.1);
+    }
+    // Pins the retuned standstill gap (kIdmS0 = 0.5 m, was 1.0 m): the follower
+    // must be essentially stopped and settled comfortably below the old value,
+    // so a regression back toward 1.0 m fails this bound.
+    CHECK(follower->get_current_speed() < 0.2);
+    CHECK(gap > 0.2);
+    CHECK(gap < 0.9);
+}
+
+TEST_CASE("idm_accel settles to the tighter moving headway") {
+    // Exercises kIdmT directly via the public static formula, rather than
+    // through a Road/Vehicle whose speed cap could itself bind and mask the
+    // headway term. v0 is set far out of reach so (v/v0)^4 stays negligible
+    // and the fixed point is governed by the gap term alone.
+    const double v0 = 100.0;
+    const double v_lead = 15.0;
+    double v = 15.0;
+    double gap = 3.0;  // starts below the eventual equilibrium
+    const double dt = 0.05;
+    for (int i = 0; i < 2000; ++i) {
+        const double a = Vehicle::idm_accel(v, v0, v_lead, gap);
+        v = std::max(0.0, v + a * dt);
+        gap += (v_lead - v) * dt;
+    }
+    // Pins the retuned headway (kIdmS0 + v*kIdmT = 0.5 + 15*0.15 = 2.75 m).
+    // The old constants (1.0 + 15*0.25 = 4.75 m) fall well outside this
+    // range, so a regression is caught.
+    CHECK(gap > 2.4);
+    CHECK(gap < 3.2);
+}
+
 TEST_CASE("advance() hands over to the next road and records the trip") {
     TestNet net;
     auto v = VehicleFactory::create("car", "v1");
