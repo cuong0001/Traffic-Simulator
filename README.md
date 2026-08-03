@@ -6,13 +6,6 @@ C++ backend runs a graph-based road network with routing, moving vehicles,
 traffic lights and dynamic events; a browser frontend polls it and draws the
 city live.
 
-### Authors:
-
-> Trần Kiên Cường - 25127025 - tkcuong2516@clc.fitus.edu.vn<br>
-> Vũ Thanh Hải - 25127323 - vthai2526@clc.fitus.edu.vn<br>
-> Nguyễn Minh Trí - 25127244 - nmtri2535@clc.fitus.edu.vn<br>
-> Nguyễn Hoàng Long - 25127090 - nhlong2520@clc.fitus.edu.vn
-
 ## What's here
 
 ```
@@ -51,6 +44,9 @@ docs/            Working notes and plan documents (gitignored; not part of
 See [docs/architecture.md](docs/architecture.md) for the class diagram and a
 longer description of how the pieces fit together, and which design pattern
 each one demonstrates.
+
+See [docs/experiments_report.md](docs/experiments_report.md) for the routing
+benchmark results and conclusions.
 
 ## Building and running
 

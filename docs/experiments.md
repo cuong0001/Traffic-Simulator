@@ -17,79 +17,44 @@ A* == Dijkstra cost : 100 / 100 pairs   (admissible heuristic => optimal)
 A* search effort    : 38.0% of Dijkstra's nodes
 BFS route cost      : 135.1% of Dijkstra's   (more expensive: BFS counts roads, not weight)
 ```
-- Note that us here means microseconds.
-- Explaination : #TODO
 
-
-
-
-
-## 2026-08-02 20:05
+## 2026-08-03 16:06
 
 Four scenarios x three algorithms (3 repeats per combo, mean ± range); each run advanced 300 s of simulated time (x10 speed) after a warm-up, routing by time cost. Closure picks a random road each run.
 
 ### Results
 
-| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp |
-|---|---|---|---|---|---|---|---|---|
-| Low traffic (target=40) | bfs | 12.37 ± 0.73 | 192.71 ± 19.71 | 0.001 | 12.37 ± 0.73 | 40.0 | 1337.133 ± 91.9 | 767.633 ± 60.9 |
-| Low traffic (target=40) | dijkstra | 15.71 ± 0.99 | 151.353 ± 13.32 | 0.001 | 15.71 ± 0.99 | 40.0 | 1341.467 ± 49.9 | 1164.0 ± 59.4 |
-| Low traffic (target=40) | astar | 16.5 ± 1.25 | 147.753 ± 8.86 | 0.001 | 16.5 ± 1.25 | 40.0 | 531.367 ± 105.2 | 636.167 ± 152.9 |
-| Rush hour (target=200) | bfs | 58.35 ± 1.35 | 203.92 ± 6.31 | 0.005 | 58.51 ± 1.23 | 200.0 | 1300.1 ± 29.9 | 531.6 ± 47.8 |
-| Rush hour (target=200) | dijkstra | 76.25 ± 2.13 | 158.127 ± 9.08 | 0.005 | 76.953 ± 1.85 | 200.0 | 1302.333 ± 29.8 | 825.767 ± 18.1 |
-| Rush hour (target=200) | astar | 76.667 ± 2.43 | 156.023 ± 5.33 | 0.005 | 77.213 ± 2.55 | 200.0 | 543.867 ± 45.6 | 588.433 ± 173.7 |
-| Closed road (random) | bfs | 35.713 ± 2.0 | 203.103 ± 21.44 | 0.003 | 35.913 ± 2.12 | 120.0 | 1346.667 ± 87.6 | 690.7 ± 218.8 |
-| Closed road (random) | dijkstra | 47.08 ± 2.12 | 150.883 ± 5.1 | 0.003 ± 0.001 | 47.293 ± 2.0 | 120.0 | 1316.733 ± 20.9 | 862.6 ± 21.4 |
-| Closed road (random) | astar | 48.42 ± 1.48 | 148.18 ± 2.22 | 0.003 | 48.667 ± 1.24 | 120.0 | 531.0 ± 16.1 | 552.033 ± 102.3 |
-| Sustained auto-spawn | bfs | 36.253 ± 2.71 | 194.15 ± 22.84 | 0.003 | 36.333 ± 2.71 | 120.0 | 1315.733 ± 60.6 | 605.133 ± 96.3 |
-| Sustained auto-spawn | dijkstra | 47.113 ± 3.79 | 153.15 ± 10.94 | 0.003 | 47.54 ± 4.17 | 120.0 | 1314.4 ± 104.4 | 868.4 ± 79.9 |
-| Sustained auto-spawn | astar | 47.047 ± 4.06 | 156.5 ± 4.81 | 0.003 ± 0.001 | 47.253 ± 4.31 | 120.0 | 548.6 ± 1.2 | 558.3 ± 101.7 |
+| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp | Vel (m/s) |
+|---|---|---|---|---|---|---|---|---|---|
+| Low traffic (target=40) | bfs | 11.383 ± 1.81 | 216.223 ± 53.67 | 0.001 | 11.513 ± 2.2 | 40.0 | 1398.267 ± 164.1 | 961.833 ± 218.7 | 7.013 ± 0.58 |
+| Low traffic (target=40) | dijkstra | 13.723 ± 1.95 | 174.95 ± 51.64 | 0.001 | 13.79 ± 2.15 | 40.0 | 1410.167 ± 126.0 | 1535.233 ± 47.7 | 8.713 ± 1.09 |
+| Low traffic (target=40) | astar | 14.273 ± 0.8 | 162.697 ± 22.81 | 0.001 | 14.273 ± 0.8 | 40.0 | 588.9 ± 60.6 | 784.267 ± 60.3 | 8.86 ± 0.56 |
+| Rush hour (target=200) | bfs | 53.63 ± 1.15 | 219.737 ± 20.29 | 0.005 | 54.213 ± 0.95 | 200.0 | 1319.333 ± 24.4 | 785.933 ± 18.7 | 7.027 ± 0.54 |
+| Rush hour (target=200) | dijkstra | 67.637 ± 4.78 | 182.153 ± 33.05 | 0.005 | 68.157 ± 4.98 | 200.0 | 1337.2 ± 106.5 | 1329.333 ± 77.5 | 8.163 ± 0.39 |
+| Rush hour (target=200) | astar | 71.077 ± 4.13 | 172.0 ± 6.68 | 0.005 | 72.317 ± 3.94 | 200.0 | 573.767 ± 45.8 | 807.033 ± 15.9 | 8.29 ± 0.19 |
+| Closed road (random) | bfs | 32.243 ± 1.12 | 213.9 ± 6.92 | 0.003 | 32.307 ± 1.31 | 120.0 | 1311.833 ± 34.7 | 854.767 ± 18.0 | 6.59 ± 0.37 |
+| Closed road (random) | dijkstra | 43.3 ± 2.74 | 172.077 ± 19.92 | 0.003 | 43.43 ± 2.35 | 120.0 | 1338.2 ± 71.0 | 1470.133 ± 224.4 | 8.06 ± 1.06 |
+| Closed road (random) | astar | 42.107 ± 3.06 | 169.197 ± 10.23 | 0.003 | 42.3 ± 2.48 | 120.0 | 578.3 ± 29.1 | 800.733 ± 72.3 | 8.567 ± 0.31 |
+| Sustained auto-spawn | bfs | 33.013 ± 2.54 | 213.973 ± 38.85 | 0.003 | 33.273 ± 2.34 | 120.0 | 1361.433 ± 138.3 | 869.767 ± 109.4 | 7.17 ± 0.45 |
+| Sustained auto-spawn | dijkstra | 42.91 ± 2.3 | 177.65 ± 12.96 | 0.003 | 43.303 ± 2.5 | 120.0 | 1325.967 ± 77.0 | 1377.233 ± 145.1 | 8.297 ± 0.52 |
+| Sustained auto-spawn | astar | 44.96 ± 0.8 | 161.077 ± 5.53 | 0.003 | 45.22 ± 1.0 | 120.0 | 546.967 ± 102.3 | 755.967 ± 130.2 | 8.607 ± 0.11 |
 
 ### Charts
 
-![Trips per sim-minute](images/2026-08-02_20-05/experiments_trips.png)
+![Trips per sim-minute](images/2026-08-03_16-06/experiments_trips.png)
 
-![Average travel time](images/2026-08-02_20-05/experiments_traveltime.png)
+![Average travel time](images/2026-08-03_16-06/experiments_traveltime.png)
 
-![Average congestion](images/2026-08-02_20-05/experiments_congestion.png)
+![Average congestion](images/2026-08-03_16-06/experiments_congestion.png)
 
-![Avg nodes explored](images/2026-08-02_20-05/experiments_nodes.png)
+![Avg nodes explored](images/2026-08-03_16-06/experiments_nodes.png)
 
-![Avg compute time](images/2026-08-02_20-05/experiments_micros.png)
+![Avg compute time](images/2026-08-03_16-06/experiments_micros.png)
 
+### Velocity over time
 
-
-## 2026-08-02 20:35
-
-Four scenarios x three algorithms (3 repeats per combo, mean ± range); each run advanced 300 s of simulated time (x10 speed) after a warm-up, routing by time cost. Closure picks a random road each run.
-
-### Results
-
-| Scenario | Algorithm | Trips/min | Travel (s) | Congestion | Recomp/min | Active | Nodes/recomp | Micros/recomp |
-|---|---|---|---|---|---|---|---|---|
-| Low traffic (target=40) | bfs | 11.627 ± 0.87 | 200.657 ± 23.41 | 0.001 | 11.667 ± 0.87 | 40.0 | 1340.4 ± 61.5 | 713.667 ± 187.9 |
-| Low traffic (target=40) | dijkstra | 15.517 ± 0.91 | 150.1 ± 7.92 | 0.001 | 15.517 ± 0.91 | 40.0 | 1374.5 ± 64.5 | 1228.167 ± 100.9 |
-| Low traffic (target=40) | astar | 15.863 ± 0.88 | 155.067 ± 0.42 | 0.001 | 15.863 ± 0.88 | 40.0 | 610.7 ± 3.1 | 746.767 ± 104.2 |
-| Rush hour (target=200) | bfs | 58.73 ± 3.05 | 205.263 ± 6.92 | 0.005 | 59.15 ± 3.67 | 200.0 | 1301.2 ± 40.1 | 673.167 ± 141.5 |
-| Rush hour (target=200) | dijkstra | 75.76 ± 4.91 | 156.79 ± 8.11 | 0.005 ± 0.001 | 76.447 ± 4.64 | 200.0 | 1323.867 ± 76.1 | 1047.5 ± 78.7 |
-| Rush hour (target=200) | astar | 77.89 ± 2.39 | 152.783 ± 2.75 | 0.005 | 78.317 ± 1.49 | 200.0 | 540.533 ± 50.2 | 612.0 ± 130.2 |
-| Closed road (random) | bfs | 36.21 ± 1.25 | 199.487 ± 4.39 | 0.003 | 36.297 ± 1.38 | 120.0 | 1329.4 ± 32.4 | 717.767 ± 88.1 |
-| Closed road (random) | dijkstra | 47.657 ± 1.16 | 150.01 ± 3.23 | 0.004 ± 0.001 | 47.827 ± 1.04 | 120.0 | 1289.333 ± 19.7 | 1108.267 ± 106.6 |
-| Closed road (random) | astar | 45.367 ± 2.53 | 154.35 ± 4.95 | 0.003 | 45.45 ± 2.4 | 120.0 | 555.067 ± 73.7 | 658.5 ± 121.6 |
-| Sustained auto-spawn | bfs | 36.88 ± 1.26 | 194.2 ± 11.49 | 0.003 | 37.09 ± 1.27 | 120.0 | 1318.5 ± 71.0 | 677.4 ± 27.4 |
-| Sustained auto-spawn | dijkstra | 47.243 ± 2.93 | 150.73 ± 9.51 | 0.003 | 47.503 ± 3.19 | 120.0 | 1304.3 ± 35.8 | 1060.133 ± 60.6 |
-| Sustained auto-spawn | astar | 47.953 ± 1.38 | 149.963 ± 9.46 | 0.003 | 48.123 ± 1.51 | 120.0 | 508.9 ± 20.2 | 598.767 ± 33.3 |
-
-### Charts
-
-![Trips per sim-minute](images/2026-08-02_20-35/experiments_trips.png)
-
-![Average travel time](images/2026-08-02_20-35/experiments_traveltime.png)
-
-![Average congestion](images/2026-08-02_20-35/experiments_congestion.png)
-
-![Avg nodes explored](images/2026-08-02_20-35/experiments_nodes.png)
-
-![Avg compute time](images/2026-08-02_20-35/experiments_micros.png)
-
+![Low traffic (target=40)](images/2026-08-03_16-06/experiments_velocity_low-traffic.png)
+![Rush hour (target=200)](images/2026-08-03_16-06/experiments_velocity_rush-hour.png)
+![Closed road (random)](images/2026-08-03_16-06/experiments_velocity_closure.png)
+![Sustained auto-spawn](images/2026-08-03_16-06/experiments_velocity_sustained.png)
 
