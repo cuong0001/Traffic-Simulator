@@ -57,15 +57,15 @@ static std::vector<std::string> names_of(const std::vector<Intersection*>& path)
 static TrafficGraph* make_diamond_graph() {
     TrafficGraph* g = new TrafficGraph();
 
-    g->intersections["A"] = new Intersection("A", 0, 0);
-    g->intersections["B"] = new Intersection("B", 10, 0);
-    g->intersections["C"] = new Intersection("C", 5, 5);
-    g->intersections["D"] = new Intersection("D", 20, 0);
+    g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+    g->intersections["B"] = std::make_unique<Intersection>("B", 10, 0);
+    g->intersections["C"] = std::make_unique<Intersection>("C", 5, 5);
+    g->intersections["D"] = std::make_unique<Intersection>("D", 20, 0);
 
-    g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 10.0);
-    g->edges["BD"] = new Road("BD", g->intersections["B"], g->intersections["D"], 1, 50, 12, true, 10.0);
-    g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 5.0);
-    g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 5.0);
+    g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 10.0);
+    g->edges["BD"] = std::make_unique<Road>("BD", g->intersections["B"].get(), g->intersections["D"].get(), 1, 50, 12, true, 10.0);
+    g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 5.0);
+    g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 5.0);
 
     return g;
 }
@@ -75,13 +75,13 @@ static TrafficGraph* make_chain_graph(int count) {
     TrafficGraph* g = new TrafficGraph();
     for (int i = 0; i < count; ++i) {
         std::string id = "N" + std::to_string(i);
-        g->intersections[id] = new Intersection(id, static_cast<double>(i), 0);
+        g->intersections[id] = std::make_unique<Intersection>(id, static_cast<double>(i), 0);
     }
     for (int i = 0; i + 1 < count; ++i) {
         std::string src = "N" + std::to_string(i);
         std::string dst = "N" + std::to_string(i + 1);
         std::string eid = src + "_" + dst;
-        g->edges[eid] = new Road(eid, g->intersections[src], g->intersections[dst], 1, 50, 12, true, 1.0);
+        g->edges[eid] = std::make_unique<Road>(eid, g->intersections[src].get(), g->intersections[dst].get(), 1, 50, 12, true, 1.0);
     }
     return g;
 }
@@ -196,15 +196,15 @@ TEST_SUITE("PathFinding – Unit Tests") {
         //   A --(100)--> B
         //   A -(1)-> C -(1)-> D -(1)-> B   (detour cost = 3)
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 10, 0);
-        g->intersections["C"] = new Intersection("C", 3, 3);
-        g->intersections["D"] = new Intersection("D", 7, 3);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 10, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 3, 3);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 7, 3);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
-        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
-        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 100.0);
+        g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
+        g->edges["DB"] = std::make_unique<Road>("DB", g->intersections["D"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
 
         Dijkstra dijk;
         auto ids = names_of(dijk.find_path(*g, "A", "B"));
@@ -218,15 +218,15 @@ TEST_SUITE("PathFinding – Unit Tests") {
 
     TEST_CASE("A* prefers a cheaper longer route over an expensive direct edge") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 10, 0);
-        g->intersections["C"] = new Intersection("C", 3, 3);
-        g->intersections["D"] = new Intersection("D", 7, 3);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 10, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 3, 3);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 7, 3);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
-        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
-        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 100.0);
+        g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
+        g->edges["DB"] = std::make_unique<Road>("DB", g->intersections["D"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
 
         AStar astar;
         auto ids = names_of(astar.find_path(*g, "A", "B"));
@@ -241,15 +241,15 @@ TEST_SUITE("PathFinding – Unit Tests") {
     TEST_CASE("BFS returns the fewest-hop path regardless of weight") {
         // Same graph: BFS should prefer the 1-hop A→B over the 3-hop detour
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 10, 0);
-        g->intersections["C"] = new Intersection("C", 3, 3);
-        g->intersections["D"] = new Intersection("D", 7, 3);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 10, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 3, 3);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 7, 3);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
-        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
-        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 100.0);
+        g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
+        g->edges["DB"] = std::make_unique<Road>("DB", g->intersections["D"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
 
         BFS bfs;
         auto ids = names_of(bfs.find_path(*g, "A", "B"));
@@ -347,7 +347,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
         // (cost 20) the expensive one. Closing A->C must make every
         // algorithm use A->B->D regardless of weights or heuristic.
         std::unique_ptr<TrafficGraph> g(make_diamond_graph());
-        g->edges["AC"]->is_closed = true;
+        g->edges["AC"]->set_closed(true);
 
         Dijkstra dijk;
         BFS bfs;
@@ -371,7 +371,7 @@ TEST_SUITE("PathFinding – Unit Tests") {
         // Linear chain N0->N1->N2->N3->N4. Closing N2->N3 cuts off N3 and N4,
         // so there is no path from N0 to N4.
         std::unique_ptr<TrafficGraph> g(make_chain_graph(5));
-        g->edges["N2_N3"]->is_closed = true;
+        g->edges["N2_N3"]->set_closed(true);
 
         Dijkstra dijk;
         BFS bfs;

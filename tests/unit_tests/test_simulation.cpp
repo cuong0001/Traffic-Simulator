@@ -174,11 +174,11 @@ TEST_CASE("events are created, described and expire on their own") {
     SUBCASE("a closure applies, shows up in state, and undoes itself") {
         const std::string id = sim.trigger_event("closure", road, 5.0);
         REQUIRE_FALSE(id.empty());
-        CHECK(sim.graph()->get_edge(road)->is_closed);
+        CHECK(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find(id) != std::string::npos);
 
         for (int i = 0; i < 60; ++i) sim.tick(0.1);   // 6 s > 5 s duration
-        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(road)->is_closed());
         CHECK(sim.state_json().find("\"id\":\"" + id + "\"") == std::string::npos);
     }
     SUBCASE("a road cannot be closed twice") {
@@ -187,11 +187,11 @@ TEST_CASE("events are created, described and expire on their own") {
     }
     SUBCASE("an accident restores capacity when it clears") {
         Road* r = sim.graph()->get_edge(road);
-        const double before = r->capacity_scale;
+        const double before = r->get_capacity_scale();
         REQUIRE_FALSE(sim.trigger_event("accident", road, 3.0).empty());
-        CHECK(r->capacity_scale < before);
+        CHECK(r->get_capacity_scale() < before);
         for (int i = 0; i < 40; ++i) sim.tick(0.1);
-        CHECK(r->capacity_scale == doctest::Approx(before));
+        CHECK(r->get_capacity_scale() == doctest::Approx(before));
     }
 }
 
@@ -288,7 +288,7 @@ TEST_CASE("live map editing") {
     const std::size_t roads_before = sim.graph()->edges.size();
 
     SUBCASE("a junction can be added and joined to the network") {
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         CHECK(sim.graph()->intersections.size() == nodes_before + 1);
@@ -303,7 +303,7 @@ TEST_CASE("live map editing") {
         // slot in solve_junctions()'s per-node buckets. Guard against a
         // regression directly, without needing to simulate traffic across the
         // new junction to observe the corruption.
-        Intersection* any = sim.graph()->intersections.begin()->second;
+        Intersection* any = sim.graph()->intersections.begin()->second.get();
         const std::string nid = sim.add_junction_at(any->x + 40.0, any->y + 40.0);
         REQUIRE_FALSE(nid.empty());
         const std::string rid = sim.add_road_between(any->name, nid, 50.0, 2, false);
@@ -324,7 +324,7 @@ TEST_CASE("live map editing") {
         Road* new_road = sim.graph()->get_edge(rid);
         REQUIRE(new_road != nullptr);
         for (const auto& [id, road] : sim.graph()->edges) {
-            if (road == new_road || id == rid) continue;
+            if (road.get() == new_road || id == rid) continue;
             if (id == rid + "_r") continue;
             CHECK(road->base_index != new_road->base_index);
         }
@@ -338,9 +338,9 @@ TEST_CASE("live map editing") {
     SUBCASE("a road's speed and closed flag can be edited") {
         const std::string rid = sim.graph()->edges.begin()->first;
         CHECK(sim.update_road(rid, 30.0, true));
-        CHECK(sim.graph()->get_edge(rid)->is_closed);
+        CHECK(sim.graph()->get_edge(rid)->is_closed());
         CHECK(sim.update_road(rid, 60.0, false));
-        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed);
+        CHECK_FALSE(sim.graph()->get_edge(rid)->is_closed());
         CHECK_FALSE(sim.update_road("ghost", 30.0, false));
     }
 }
@@ -663,7 +663,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             bool has_ring = false, has_street = false;
             for (const auto& [rid, road] : sim.graph()->edges) {
-                if (road->source != node && road->target != node) continue;
+                if (road->source != node.get() && road->target != node.get()) continue;
                 if (road->is_internal) has_ring = true; else has_street = true;
             }
             if (!has_ring) continue;
@@ -693,7 +693,7 @@ TEST_CASE("a roundabout is not a ring of crossings") {
         for (const auto& [id, node] : sim.graph()->intersections) {
             for (const auto& [rid, road] : sim.graph()->edges) {
                 if (!road->is_internal) continue;
-                if (road->source == node || road->target == node) {
+                if (road->source == node.get() || road->target == node.get()) {
                     ring_nodes.push_back(id);
                     break;
                 }

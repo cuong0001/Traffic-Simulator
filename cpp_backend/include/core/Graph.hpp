@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -11,16 +12,38 @@ class Building;
 
 class TrafficGraph {
 public:
-    // Store objects in unordered_maps keyed by name/ID -> object pointer
-    std::unordered_map<std::string, Intersection*> intersections;
-    std::unordered_map<std::string, Road*> edges;
-    std::unordered_map<std::string, Building*> buildings;
+    // Owning containers keyed by name/ID. unique_ptr means the graph's
+    // destructor is compiler-generated (Rule of Zero) instead of a manual
+    // delete loop, and a missing entry can never be a dangling pointer that
+    // *looks* like it might still be valid.
+    std::unordered_map<std::string, std::unique_ptr<Intersection>> intersections;
+    std::unordered_map<std::string, std::unique_ptr<Road>> edges;
+    std::unordered_map<std::string, std::unique_ptr<Building>> buildings;
     std::vector<Zone> zones; // Display-only background regions, loaded from the GeoJSON map
 
-    // Construct an empty graph, then populate it with MapLoader
-    TrafficGraph() = default;
-    // Destroy the graph, freeing all Intersection, Road, and Building memory
+    // Construct an empty graph, then populate it with MapLoader.
+    //
+    // All four of these are declared here but defined "= default" in
+    // Graph.cpp, not inline. Intersection/Road/Building are only
+    // forward-declared in this header, and a unique_ptr<T> member needs T's
+    // complete definition (to call delete) not just for the destructor, but
+    // for the default constructor too: computing whether TrafficGraph()
+    // is noexcept requires checking whether unordered_map<string,
+    // unique_ptr<Building>>'s own default constructor is noexcept, which
+    // (at least in libstdc++) instantiates that map's destructor along the
+    // way. Defining all four after Graph.cpp's own #includes gives the
+    // compiler the complete types it needs; defining any of them here would
+    // not compile.
+    TrafficGraph();
     ~TrafficGraph();
+
+    // Owns every Intersection/Road/Building via unique_ptr, so copying would
+    // either double-free (shallow copy) or require deep-cloning a graph,
+    // which nothing needs. Move is fine and used by load()/import_map().
+    TrafficGraph(const TrafficGraph&) = delete;
+    TrafficGraph& operator=(const TrafficGraph&) = delete;
+    TrafficGraph(TrafficGraph&&);
+    TrafficGraph& operator=(TrafficGraph&&);
 
     // Graph construction
     void create_directional_road(const std::string& edge_id, Intersection* source_node, Intersection* target_node, int lanes, double speed_limit, bool is_one_way);

@@ -2,6 +2,7 @@
 #include "third_party/doctest/doctest.h"
 
 #include <limits>
+#include <memory>
 #include <set>
 #include <string>
 
@@ -24,7 +25,7 @@ namespace {
 TrafficGraph* four_way() {
     TrafficGraph* g = new TrafficGraph();
     auto node = [&](const std::string& id, double x, double y) {
-        g->intersections[id] = new Intersection(id, x, y);
+        g->intersections[id] = std::make_unique<Intersection>(id, x, y);
     };
     node("M", 0, 0);
     node("A", -100, 0);
@@ -33,8 +34,8 @@ TrafficGraph* four_way() {
     node("D", 0, -100);
 
     auto link = [&](const std::string& a, const std::string& b) {
-        Intersection* u = g->intersections[a];
-        Intersection* v = g->intersections[b];
+        Intersection* u = g->intersections[a].get();
+        Intersection* v = g->intersections[b].get();
         for (int dir = 0; dir < 2; ++dir) {
             Intersection* s = dir ? v : u;
             Intersection* t = dir ? u : v;
@@ -57,8 +58,8 @@ TEST_CASE("a four-way crossing splits into two opposing phase groups") {
     TrafficGraph* g = four_way();
     REQUIRE(g->signalize("M"));
 
-    Intersection* m = g->intersections["M"];
-    REQUIRE(m->is_signalized);
+    Intersection* m = g->intersections["M"].get();
+    REQUIRE(m->is_signalized());
     REQUIRE(m->incoming_edges.size() == 4);
 
     // The east-west pair must share a group, and so must the north-south pair,
@@ -78,7 +79,7 @@ TEST_CASE("a four-way crossing splits into two opposing phase groups") {
 TEST_CASE("opposing approaches never show green at the same moment") {
     TrafficGraph* g = four_way();
     REQUIRE(g->signalize("M"));
-    Intersection* m = g->intersections["M"];
+    Intersection* m = g->intersections["M"].get();
 
     bool saw_ew_green = false, saw_ns_green = false;
     for (double t = 0.0; t < 120.0; t += 0.25) {
@@ -101,7 +102,7 @@ TEST_CASE("opposing approaches never show green at the same moment") {
 TEST_CASE("the cycle is a pure function of time, so it cannot drift") {
     TrafficGraph* g = four_way();
     REQUIRE(g->signalize("M"));
-    Intersection* m = g->intersections["M"];
+    Intersection* m = g->intersections["M"].get();
     const int grp = g->edges["AM"]->signal_group;
 
     const double cycle = (m->light_system->get_green_duration() +
@@ -119,14 +120,14 @@ TEST_CASE("the cycle is a pure function of time, so it cannot drift") {
 TEST_CASE("two junctions do not switch in unison") {
     TrafficGraph* g = four_way();
     // A second crossing, far away, with its own four approaches on two axes.
-    g->intersections["N"] = new Intersection("N", 500, 500);
+    g->intersections["N"] = std::make_unique<Intersection>("N", 500, 500);
     const double px[4] = {400, 500, 600, 500};
     const double py[4] = {500, 600, 500, 400};
     for (int i = 0; i < 4; ++i) {
         const std::string arm = "P" + std::to_string(i);
-        g->intersections[arm] = new Intersection(arm, px[i], py[i]);
-        g->create_directional_road(arm + "N", g->intersections[arm],
-                                   g->intersections["N"], 1, 50.0, true);
+        g->intersections[arm] = std::make_unique<Intersection>(arm, px[i], py[i]);
+        g->create_directional_road(arm + "N", g->intersections[arm].get(),
+                                   g->intersections["N"].get(), 1, 50.0, true);
     }
     REQUIRE(g->signalize("M"));
     REQUIRE(g->signalize("N"));
@@ -150,7 +151,7 @@ TEST_CASE("the phase offset is derived from the id, so a reload reproduces it") 
 TEST_CASE("an approach with no group assigned is red, never green") {
     TrafficGraph* g = four_way();
     REQUIRE(g->signalize("M"));
-    Intersection* m = g->intersections["M"];
+    Intersection* m = g->intersections["M"].get();
 
     // -1 is what a road carries before any group is handed out. Reading it as
     // "group 0" would wave unassigned traffic through a live junction.
@@ -163,21 +164,21 @@ TEST_CASE("an approach with no group assigned is red, never green") {
 
 TEST_CASE("a junction with nothing to arbitrate is refused a guessed signal") {
     TrafficGraph* g = new TrafficGraph();
-    g->intersections["M"] = new Intersection("M", 0, 0);
-    g->intersections["A"] = new Intersection("A", -100, 0);
-    g->intersections["C"] = new Intersection("C", 100, 0);
+    g->intersections["M"] = std::make_unique<Intersection>("M", 0, 0);
+    g->intersections["A"] = std::make_unique<Intersection>("A", -100, 0);
+    g->intersections["C"] = std::make_unique<Intersection>("C", 100, 0);
 
     // A--M--C is one straight street: two approaches, a single axis.
     for (auto [id, from] : {std::pair<std::string, std::string>{"AM", "A"},
                             std::pair<std::string, std::string>{"CM", "C"}}) {
-        g->create_directional_road(id, g->intersections[from], g->intersections["M"],
+        g->create_directional_road(id, g->intersections[from].get(), g->intersections["M"].get(),
                                    1, 50.0, true);
     }
 
     // signalize() guesses, so it must refuse: stopping a straight street for
     // itself would be pure loss.
     CHECK_FALSE(g->signalize("M"));
-    CHECK_FALSE(g->intersections["M"]->is_signalized);
+    CHECK_FALSE(g->intersections["M"]->is_signalized());
 
     // assign_signal_groups() is what an explicit map file goes through, and it
     // still assigns -- one shared group, so nobody is stranded on red.
@@ -192,14 +193,14 @@ TEST_CASE("the stop line sits before the junction and inside the road") {
     TrafficGraph* g = four_way();
     REQUIRE(g->signalize("M"));
 
-    Road* am = g->edges["AM"];
+    Road* am = g->edges["AM"].get();
     CHECK(am->signal_stop_from_end == doctest::Approx(8.0));
     CHECK(am->stop_line_position() == doctest::Approx(am->length - 8.0));
     CHECK(am->stop_line_position() < am->length);
     CHECK(am->stop_line_position() > 0.0);
 
     // A road with no signal reports its far end, so callers need no branch.
-    Road* unsignalled = g->edges["AM_r"];   // leaves M, so it is not an approach
+    Road* unsignalled = g->edges["AM_r"].get();   // leaves M, so it is not an approach
     CHECK(unsignalled->signal_group == -1);
     CHECK(unsignalled->stop_line_position() == doctest::Approx(unsignalled->length));
 
@@ -209,7 +210,7 @@ TEST_CASE("the stop line sits before the junction and inside the road") {
 TEST_CASE("a short block keeps its stop line off the start of the road") {
     TrafficGraph* g = new TrafficGraph();
     auto node = [&](const std::string& id, double x, double y) {
-        g->intersections[id] = new Intersection(id, x, y);
+        g->intersections[id] = std::make_unique<Intersection>(id, x, y);
     };
     node("M", 0, 0);
     node("A", -10, 0);   // 10 m block, far shorter than the nominal 8 m setback
@@ -217,12 +218,12 @@ TEST_CASE("a short block keeps its stop line off the start of the road") {
     node("C", 10, 0);
 
     for (auto id : {std::string("A"), std::string("B"), std::string("C")}) {
-        g->create_directional_road(id + "M", g->intersections[id],
-                                   g->intersections["M"], 1, 50.0, true);
+        g->create_directional_road(id + "M", g->intersections[id].get(),
+                                   g->intersections["M"].get(), 1, 50.0, true);
     }
     REQUIRE(g->signalize("M"));
 
-    Road* am = g->edges["AM"];
+    Road* am = g->edges["AM"].get();
     REQUIRE(am->length == doctest::Approx(10.0));
     // 40% of the road, not a flat 8 m, so the line stays comfortably inside it.
     CHECK(am->signal_stop_from_end == doctest::Approx(4.0));
@@ -237,7 +238,7 @@ TEST_CASE("designalize clears the groups off every approach") {
     REQUIRE(g->edges["AM"]->signal_group >= 0);
 
     g->designalize("M");
-    CHECK_FALSE(g->intersections["M"]->is_signalized);
+    CHECK_FALSE(g->intersections["M"]->is_signalized());
     CHECK(g->intersections["M"]->light_system == nullptr);
     for (Road* r : g->intersections["M"]->incoming_edges) {
         CHECK(r->signal_group == -1);
@@ -251,7 +252,7 @@ TEST_CASE("designalize clears the groups off every approach") {
 
 TEST_CASE("Road::cost follows the requested policy and refuses closed roads") {
     TrafficGraph* g = four_way();
-    Road* am = g->edges["AM"];
+    Road* am = g->edges["AM"].get();
     REQUIRE(am->length == doctest::Approx(100.0));
 
     CHECK(am->cost(CostMode::Distance) == doctest::Approx(100.0));
@@ -260,12 +261,12 @@ TEST_CASE("Road::cost follows the requested policy and refuses closed roads") {
     CHECK(am->cost(CostMode::Time) == doctest::Approx(100.0 / (50.0 / 3.6)).epsilon(0.01));
 
     // Congestion makes it slower in Time, and leaves Distance untouched.
-    am->congestion_level = 1.0;
+    am->set_congestion_level(1.0);
     CHECK(am->cost(CostMode::Time) > 100.0 / (50.0 / 3.6));
     CHECK(am->cost(CostMode::Distance) == doctest::Approx(100.0));
 
     // A closed road is not expensive, it is impassable.
-    am->is_closed = true;
+    am->set_closed(true);
     CHECK(am->cost(CostMode::Distance) == std::numeric_limits<double>::infinity());
     CHECK(am->cost(CostMode::Time) == std::numeric_limits<double>::infinity());
 
@@ -274,12 +275,12 @@ TEST_CASE("Road::cost follows the requested policy and refuses closed roads") {
 
 TEST_CASE("effective speed falls with congestion but never reaches zero") {
     TrafficGraph* g = four_way();
-    Road* am = g->edges["AM"];
+    Road* am = g->edges["AM"].get();
 
     CHECK(am->speed_limit_ms() == doctest::Approx(50.0 / 3.6));
     CHECK(am->effective_speed_ms() == doctest::Approx(am->speed_limit_ms()));
 
-    am->congestion_level = 1.0;
+    am->set_congestion_level(1.0);
     const double jammed = am->effective_speed_ms();
     CHECK(jammed < am->speed_limit_ms());
     CHECK(jammed >= 1.0);   // a jammed road must still let traffic crawl out

@@ -9,9 +9,9 @@
 Road::Road(std::string id, Intersection* source, Intersection* target, int lanes, double speed_limit,
            int capacity, bool is_one_way, double length, Geometry* geometry)
     : id(std::move(id)), source(source), target(target),
-      lanes(lanes), speed_limit(speed_limit),
       capacity(capacity), is_one_way(is_one_way),
-      is_internal(false), congestion_level(0.0), geometry(geometry) {
+      is_internal(false), geometry(geometry),
+      lanes_(lanes), speed_limit_(speed_limit) {
 
     // Length comes from the map file when given; otherwise measure it from the
     // endpoints.
@@ -38,10 +38,6 @@ void Road::add_vehicle(Vehicle* vehicle) {
 
 void Road::remove_vehicle(Vehicle* vehicle) {
     vehicles.erase(std::remove(vehicles.begin(), vehicles.end(), vehicle), vehicles.end());
-}
-
-double Road::get_congestion_level() const {
-    return congestion_level;
 }
 
 double Road::get_weight() const {
@@ -86,7 +82,7 @@ double Road::effective_speed_ms(double sensitivity) const {
     // Moderate congestion slowdown (down to ~50% of speed limit at worst)
     // keeping vehicles moving smoothly through junctions to prevent gridlock.
     const double slowdown =
-        1.0 - 0.50 * congestion_level * std::clamp(sensitivity, 0.0, 1.0);
+        1.0 - 0.50 * congestion_level_ * std::clamp(sensitivity, 0.0, 1.0);
     return std::max(1.0, speed_limit_ms() * slowdown);  // never below 1 m/s
 }
 
@@ -102,25 +98,25 @@ double Road::stop_line_position() const {
 }
 
 double Road::cost(CostMode mode) const {
-    if (is_closed) return std::numeric_limits<double>::infinity();
+    if (is_closed_) return std::numeric_limits<double>::infinity();
     return mode == CostMode::Distance ? length : travel_time_seconds();
 }
 
 void Road::update_travel_cost() {
     // If road is closed, set travel cost to infinity which prevent pathfinding algorithms from routing onto this road
-    if (is_closed) {
+    if (is_closed_) {
         travel_cost = kClosedRoadCost;
         return;
     }
 
     // Physical road capacity scaled by active events
-    const double actual_capacity = std::max(1.0, lanes * capacity * capacity_scale);
+    const double actual_capacity = std::max(1.0, lanes_ * capacity * capacity_scale_);
     const double density = static_cast<double>(vehicles.size()) / actual_capacity;
 
     // Vehicle density contributes smoothly up to 0.70; events supply the rest.
     const double base_congestion = 0.70 * std::pow(std::min(1.0, density), 1.3);
-    congestion_level = std::clamp(base_congestion + event_congestion, 0.0, 1.0);
+    congestion_level_ = std::clamp(base_congestion + event_congestion_, 0.0, 1.0);
 
     // Recomputed travel cost.
-    travel_cost = base_weight * (1.0 + congestion_level);
+    travel_cost = base_weight * (1.0 + congestion_level_);
 }

@@ -51,7 +51,7 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Non-existent start node returns empty path") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -64,7 +64,7 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Non-existent end node returns empty path") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -101,7 +101,7 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Single node, self-path") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["X"] = new Intersection("X", 0, 0);
+        g->intersections["X"] = std::make_unique<Intersection>("X", 0, 0);
 
         Dijkstra dijk;
         auto pd = dijk.find_path(*g, "X", "X");
@@ -116,15 +116,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Two disconnected components – no cross-component path") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 1, 0);
-        g->intersections["C"] = new Intersection("C", 10, 0);
-        g->intersections["D"] = new Intersection("D", 11, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 1, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 10, 0);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 11, 0);
 
         // Component 1: A→B
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
         // Component 2: C→D
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -149,15 +149,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
     TEST_CASE("Cycle – algorithms terminate and find the exit") {
         //  A → B → C → A (cycle) and C → D (exit)
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 1, 0);
-        g->intersections["C"] = new Intersection("C", 2, 0);
-        g->intersections["D"] = new Intersection("D", 3, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 1, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 2, 0);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 3, 0);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
-        g->edges["BC"] = new Road("BC", g->intersections["B"], g->intersections["C"], 1, 50, 12, true, 1.0);
-        g->edges["CA"] = new Road("CA", g->intersections["C"], g->intersections["A"], 1, 50, 12, true, 1.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
+        g->edges["BC"] = std::make_unique<Road>("BC", g->intersections["B"].get(), g->intersections["C"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CA"] = std::make_unique<Road>("CA", g->intersections["C"].get(), g->intersections["A"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -175,11 +175,11 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Reverse direction – unreachable despite edge existing") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 1, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 1, 0);
 
         // Only A→B, not B→A
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -198,15 +198,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
         //  A →(5)→ B →(5)→ D
         //  A →(5)→ C →(5)→ D
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 5, 5);
-        g->intersections["C"] = new Intersection("C", 5, -5);
-        g->intersections["D"] = new Intersection("D", 10, 0);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 5, 5);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 5, -5);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 10, 0);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 5.0);
-        g->edges["BD"] = new Road("BD", g->intersections["B"], g->intersections["D"], 1, 50, 12, true, 5.0);
-        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 5.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 5.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 5.0);
+        g->edges["BD"] = std::make_unique<Road>("BD", g->intersections["B"].get(), g->intersections["D"].get(), 1, 50, 12, true, 5.0);
+        g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 5.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 5.0);
 
         Dijkstra dijk;
         auto ids_d = names_of(dijk.find_path(*g, "A", "D"));
@@ -227,14 +227,14 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Star topology – hub to leaves, no leaf-to-leaf path") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["H"]  = new Intersection("H", 0, 0);
-        g->intersections["L1"] = new Intersection("L1", 1, 0);
-        g->intersections["L2"] = new Intersection("L2", 0, 1);
-        g->intersections["L3"] = new Intersection("L3", -1, 0);
+        g->intersections["H"]  = std::make_unique<Intersection>("H", 0, 0);
+        g->intersections["L1"] = std::make_unique<Intersection>("L1", 1, 0);
+        g->intersections["L2"] = std::make_unique<Intersection>("L2", 0, 1);
+        g->intersections["L3"] = std::make_unique<Intersection>("L3", -1, 0);
 
-        g->edges["HL1"] = new Road("HL1", g->intersections["H"], g->intersections["L1"], 1, 50, 12, true, 1.0);
-        g->edges["HL2"] = new Road("HL2", g->intersections["H"], g->intersections["L2"], 1, 50, 12, true, 1.0);
-        g->edges["HL3"] = new Road("HL3", g->intersections["H"], g->intersections["L3"], 1, 50, 12, true, 1.0);
+        g->edges["HL1"] = std::make_unique<Road>("HL1", g->intersections["H"].get(), g->intersections["L1"].get(), 1, 50, 12, true, 1.0);
+        g->edges["HL2"] = std::make_unique<Road>("HL2", g->intersections["H"].get(), g->intersections["L2"].get(), 1, 50, 12, true, 1.0);
+        g->edges["HL3"] = std::make_unique<Road>("HL3", g->intersections["H"].get(), g->intersections["L3"].get(), 1, 50, 12, true, 1.0);
 
         Dijkstra dijk;
         BFS bfs;
@@ -257,13 +257,13 @@ TEST_SUITE("PathFinding – Edge Cases") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
         for (int i = 0; i < N; ++i) {
             std::string id = "N" + std::to_string(i);
-            g->intersections[id] = new Intersection(id, static_cast<double>(i), 0);
+            g->intersections[id] = std::make_unique<Intersection>(id, static_cast<double>(i), 0);
         }
         for (int i = 0; i + 1 < N; ++i) {
             std::string src = "N" + std::to_string(i);
             std::string dst = "N" + std::to_string(i + 1);
             std::string eid = src + "_" + dst;
-            g->edges[eid] = new Road(eid, g->intersections[src], g->intersections[dst], 1, 50, 12, true, 1.0);
+            g->edges[eid] = std::make_unique<Road>(eid, g->intersections[src].get(), g->intersections[dst].get(), 1, 50, 12, true, 1.0);
         }
 
         Dijkstra dijk;
@@ -278,15 +278,15 @@ TEST_SUITE("PathFinding – Edge Cases") {
 
     TEST_CASE("Runtime strategy swap – strategy pattern demonstration") {
         std::unique_ptr<TrafficGraph> g(new TrafficGraph());
-        g->intersections["A"] = new Intersection("A", 0, 0);
-        g->intersections["B"] = new Intersection("B", 10, 0);
-        g->intersections["C"] = new Intersection("C", 3, 3);
-        g->intersections["D"] = new Intersection("D", 7, 3);
+        g->intersections["A"] = std::make_unique<Intersection>("A", 0, 0);
+        g->intersections["B"] = std::make_unique<Intersection>("B", 10, 0);
+        g->intersections["C"] = std::make_unique<Intersection>("C", 3, 3);
+        g->intersections["D"] = std::make_unique<Intersection>("D", 7, 3);
 
-        g->edges["AB"] = new Road("AB", g->intersections["A"], g->intersections["B"], 1, 50, 12, true, 100.0);
-        g->edges["AC"] = new Road("AC", g->intersections["A"], g->intersections["C"], 1, 50, 12, true, 1.0);
-        g->edges["CD"] = new Road("CD", g->intersections["C"], g->intersections["D"], 1, 50, 12, true, 1.0);
-        g->edges["DB"] = new Road("DB", g->intersections["D"], g->intersections["B"], 1, 50, 12, true, 1.0);
+        g->edges["AB"] = std::make_unique<Road>("AB", g->intersections["A"].get(), g->intersections["B"].get(), 1, 50, 12, true, 100.0);
+        g->edges["AC"] = std::make_unique<Road>("AC", g->intersections["A"].get(), g->intersections["C"].get(), 1, 50, 12, true, 1.0);
+        g->edges["CD"] = std::make_unique<Road>("CD", g->intersections["C"].get(), g->intersections["D"].get(), 1, 50, 12, true, 1.0);
+        g->edges["DB"] = std::make_unique<Road>("DB", g->intersections["D"].get(), g->intersections["B"].get(), 1, 50, 12, true, 1.0);
 
         // Start with Dijkstra strategy
         std::unique_ptr<PathFinding> strategy(new Dijkstra());

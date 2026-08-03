@@ -22,7 +22,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
     if (start_it == graph.intersections.end() || end_it == graph.intersections.end())
         return {};
 
-    Intersection* start_node = start_it->second;
+    Intersection* start_node = start_it->second.get();
 
     // Seed the BFS
     front.push(start_node);
@@ -41,7 +41,7 @@ std::vector<Intersection*> BFS::find_path(const TrafficGraph& graph,
 
         // Expand neighbours via outgoing roads
         for (Road* road : current->outgoing_edges) {
-            if (road->is_closed) continue;   // closed road is untraversable
+            if (road->is_closed()) continue;   // closed road is untraversable
             Intersection* neighbour = road->target;
             if (visited.find(neighbour->name) == visited.end()) {
                 visited.insert(neighbour->name);

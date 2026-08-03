@@ -14,14 +14,14 @@
 #include "vehicles/Vehicle.hpp"
 
 /// Regular passenger car: baseline behaviour.
-class Car : public Vehicle {
+class Car final : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "car"; }
 };
 
 /// Public bus: slower, fully bound by traffic rules.
-class Bus : public Vehicle {
+class Bus final : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "bus"; }
@@ -38,7 +38,7 @@ public:
 };
 
 /// Emergency vehicle: fast, weaves through congestion, ignores red lights.
-class EmergencyVehicle : public Vehicle {
+class EmergencyVehicle final : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "emergency"; }
@@ -52,7 +52,7 @@ public:
 };
 
 /// Motorbike: nimble in congestion, slightly slower top speed.
-class Motorbike : public Vehicle {
+class Motorbike final : public Vehicle {
 public:
     using Vehicle::Vehicle;
     std::string type() const override { return "motorbike"; }
