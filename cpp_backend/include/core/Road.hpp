@@ -51,6 +51,22 @@ public:
     int signal_group = -1;
     double signal_stop_from_end = 8.0;  // m before the road's end
 
+    // Where OSM actually put the signal head for this approach, in world
+    // coordinates. Only set when the source map really carried a
+    // highway=traffic_signals node on this arm: signalizing a junction gives
+    // EVERY approach a phase group so traffic stops correctly, but drawing a
+    // head on every one of them invents lights the city does not have. The
+    // renderer draws a head only where has_signal_head is true; the stopping
+    // logic ignores this entirely and keeps using signal_stop_from_end.
+    bool has_signal_head = false;
+    double signal_head_x = 0.0, signal_head_y = 0.0;
+    // Unit direction of travel of the road segment the head actually stands on,
+    // pointing at the junction. The renderer needs the LOCAL heading to lay a
+    // stop line across the carriageway; deriving it from the approach's two
+    // endpoints instead gives the chord, which on a curved or split approach
+    // crosses the road at a visible angle.
+    double signal_head_ux = 0.0, signal_head_uy = 0.0;
+
     static constexpr double kClosedRoadCost = 1e8;
 
 
