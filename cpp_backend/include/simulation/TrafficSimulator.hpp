@@ -39,7 +39,7 @@ would change what the second one sees inside the same tick.
 // (roadWOf, US), neither of which the backend knows about. An earlier version
 // of this struct computed world x/y here with hardcoded constants; that
 // silently disagreed with placeOnRoad() on any map where those constants
-// didn't match. See docs/PLAN-fast-ids-and-streaming.md, Phase 3.
+// didn't match.
 #pragma pack(push, 1)
 struct VehicleSnapshotBin {
     uint32_t num_id;      // Parsed from the trailing digits of Vehicle::id

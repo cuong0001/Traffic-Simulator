@@ -15,6 +15,18 @@ namespace {
     constexpr double kMobilThreshold = 0.35;       // min gain to bother (m/s^2)
     constexpr double kMobilReturnThreshold = 1.0;  // going back needs a bigger win
     constexpr double kMobilObstruction = 0.4;      // only change if actually held up
+    // Clear bumper-to-bumper room required in the target lane, ahead AND
+    // behind, before a lane change is even considered -- checked separately
+    // from the gain math below, which is purely relative ("is this lane better
+    // than mine") and so can accept an objectively occupied lane when the
+    // current one is bad enough. set_lane() itself does no collision check at
+    // all (it only starts the sideways-drift animation), so nothing else was
+    // stopping that. Same idea as entry_slot_free()'s hard check for road
+    // handovers, applied to the other place a vehicle's lane can change.
+    // Looser than kContactMargin/kIdmS0 on purpose: a lane change is an
+    // instant commitment with no gradual IDM convergence to fall back on if
+    // the estimate was borderline, so it gets a real margin.
+    constexpr double kLaneChangeMinGap = 1.0;
 
     // ---- junction yielding (M6) ---------------------------------------------
     constexpr double kJunctionZone = 2.0;    // m: conflict radius around the node
@@ -162,17 +174,44 @@ void JunctionArbiter::solve_lane_changes(double sim_time) {
         for (int lane : allowed) {
             if (lane == v->lane || std::abs(lane - v->lane) != 1) continue;
 
+            // Hard gate first, before any gain math: is the slot physically
+            // free? Distance is ABSOLUTE, deliberately -- accel_in_lane()
+            // only looks at vehicles strictly ahead and follower_in_lane()
+            // only at ones strictly behind, so a vehicle sitting at the SAME
+            // position in the target lane (two cars side by side, which is
+            // exactly what a queue at a stop line produces) is invisible to
+            // both, and MOBIL reads the lane as empty. That blind spot is
+            // what produced observed overlaps of a full car length, with
+            // both vehicles reporting an identical position_on_road.
+            bool slot_taken = false;
+            for (Vehicle* o : road->vehicles) {
+                if (o == v || o->lane != lane) continue;
+                const double d = std::abs(o->position_on_road - v->position_on_road);
+                const double needed =
+                    0.5 * (o->length_meters() + v->length_meters()) + kLaneChangeMinGap;
+                if (d < needed) { slot_taken = true; break; }
+            }
+            if (slot_taken) continue;
+
+            // Kept for the queued-vehicle incentive below: the gap to whoever
+            // is ahead in the target lane, once the slot itself is known free.
+            double target_gap = 1e9;
+            for (Vehicle* o : road->vehicles) {
+                if (o == v || o->lane != lane) continue;
+                if (o->position_on_road <= v->position_on_road) continue;
+                target_gap = std::min(target_gap, gap_between(v, o));
+            }
+
             const double a_new = accel_in_lane(v, lane);
             double gain = a_new - a_cur;
 
             // Extra incentive for queued/stationary vehicles to escape blocked lanes if target lane is clear ahead
             if (v->current_speed < 1.0) {
-                double cur_gap = 1e9, target_gap = 1e9;
+                double cur_gap = 1e9;
                 for (Vehicle* o : road->vehicles) {
-                    if (o == v || o->position_on_road <= v->position_on_road) continue;
-                    const double g = gap_between(v, o);
-                    if (o->lane == v->lane && g < cur_gap) cur_gap = g;
-                    if (o->lane == lane && g < target_gap) target_gap = g;
+                    if (o == v || o->lane != v->lane) continue;
+                    if (o->position_on_road <= v->position_on_road) continue;
+                    cur_gap = std::min(cur_gap, gap_between(v, o));
                 }
                 if (target_gap > cur_gap + 3.0) gain += 1.5;
             }
@@ -181,10 +220,14 @@ void JunctionArbiter::solve_lane_changes(double sim_time) {
             // vehicle that ends up behind us. politeness 0 ignores it entirely.
             Vehicle* follower = follower_in_lane(v, lane);
             if (follower) {
+                // No hard gap check here: the slot_taken gate above already
+                // covers behind as well as ahead. This stays purely MOBIL's
+                // own comfort/politeness judgement.
+                const double follow_gap = gap_between(follower, v);
                 const double f_before = accel_in_lane(follower, lane);
                 const double f_after = Vehicle::idm_accel(
                     follower->current_speed, follower->desired_speed_on(*road),
-                    v->current_speed, std::max(0.0, gap_between(follower, v)));
+                    v->current_speed, std::max(0.0, follow_gap));
                 if (f_after < kMobilSafeDecel) continue;      // unsafe: skip
                 gain -= v->lane_politeness() * (f_before - f_after);
             }
